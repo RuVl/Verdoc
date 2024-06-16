@@ -1,0 +1,19 @@
+FROM node:20.14.0
+LABEL authors="RuVl_13"
+
+# Set enviroment variables
+ENV TZ Europe/Moscow
+
+# Prepare project directory
+CMD mkdir -p /usr/src/app/
+WORKDIR /usr/src/app/
+
+# Copy and install dependencies
+COPY ./package*.json ./
+RUN npm install
+
+# Copy project to directory
+COPY . ./
+
+# Run app
+ENTRYPOINT npm run dev

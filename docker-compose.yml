@@ -1,0 +1,50 @@
+volumes:
+  postgres_volume:
+    driver: local
+
+networks:
+  verdoc:
+    driver: bridge
+
+services:
+  frontend-nginx:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - verdoc
+
+  postgres:
+    image: postgres:16.2
+    restart: unless-stopped
+    expose:
+      - 5432
+    env_file: ./postgres/.env
+    volumes:
+      - postgres_volume:/var/lib/postgresql/data
+    networks:
+      - verdoc
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - postgres/.env  # For db connection
+    expose:
+      - 8000
+    networks:
+      - verdoc
+    depends_on:
+      postgres:
+        condition: service_healthy

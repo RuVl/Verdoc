@@ -1,0 +1,35 @@
+<script setup>
+import ViewBlock from "@/components/ViewBlock.vue";
+import CommonButton from "@/components/CommonButton.vue";
+import InputWrapper from "@/components/InputWrapper.vue";
+</script>
+
+<template>
+  <ViewBlock>
+    <template #title>Мои покупки</template>
+    <form class="get-files-form" method="post">
+      <span>Введите email для получения файлов:</span>
+      <div class="in-row">
+        <InputWrapper>
+          <input name="email" type="email" placeholder="Введите email">
+        </InputWrapper>
+        <CommonButton tabindex="0">Отправить ссылки</CommonButton>
+      </div>
+      TODO: reCAPTCHA
+    </form>
+  </ViewBlock>
+</template>
+
+<style scoped lang="scss">
+.get-files-form {
+  .in-row {
+    width: max-content;
+    margin: 30px 0 15px 0;
+
+    display: flex;
+    gap: 15px;
+    flex-direction: row;
+    align-items: stretch;
+  }
+}
+</style>

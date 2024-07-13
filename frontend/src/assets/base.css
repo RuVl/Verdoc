@@ -1,0 +1,23 @@
+:root {
+	--navigation-margin: 25px;
+	--main-margin: 25px;
+
+	--banner-width: 673px;
+}
+
+:root {
+	--accent-color: #2f61f2;
+	--second-color: #f0f0f0;
+	--second-color-text: color-mix(in srgb, var(--second-color) 75%, black);
+}
+
+*, *::before, *::after {
+	margin: 0;
+	padding: 0;
+}
+
+body {
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}

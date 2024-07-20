@@ -1,3 +1,6 @@
+# Use another config for drf
+# https://stackoverflow.com/a/75258762
+
 volumes:
   postgres_volume:
     driver: local
@@ -40,6 +43,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
+      - backend/.env
       - postgres/.env  # For db connection
     expose:
       - 8000

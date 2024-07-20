@@ -1,69 +1,50 @@
 <script setup>
-import {ref, computed} from 'vue';
 import CountryFlag from 'vue-country-flag-next';
 import ViewBlock from "@/components/ViewBlock.vue";
 import ListView from "@/components/ListView.vue";
 import TrashIcon from "@/components/icons/IconTrash.vue";
 import CommonButton from "@/components/CommonButton.vue";
+import {useCartStore} from "@/stores/cart.js";
+import {storeToRefs} from "pinia";
+import {useCurrenciesStore} from "@/stores/currencies.js";
 
-const cartItems = ref([
-  {
-    id: 1,
-    flag: 'au',
-    name: 'Австралия Паспорт скан',
-    quantity: 24,
-    price: 123
-  },
-  {
-    id: 2,
-    flag: 'au',
-    name: 'Австралия DL фото с одной стороны',
-    quantity: 24,
-    price: 123
-  }
-]);
+const cartStore = useCartStore();
+const {cartItems, cartItemCount, totalPrice} = storeToRefs(cartStore);
 
-const currency_symbol = ref('₽');
-
-const removeFromCart = (id) => {
-  cartItems.value = cartItems.value.filter(item => item.id !== id);
-};
-
-const totalPrice = computed(() => {
-  return cartItems.value.reduce((acc, item) => acc + item.price, 0).toFixed(2);
-});
+const currencyStore = useCurrenciesStore();
+const {currentCurrency} = storeToRefs(currencyStore);
 </script>
 
 <template>
   <ViewBlock class="cart-view">
-    <template #title>Корзина</template>
-    <div v-if="cartItems.length === 0" class="empty-cart">
-      Ваша корзина пуста!
+    <template #title>{{ $t('routes.cart') }}</template>
+    <div v-if="cartItemCount === 0" class="empty-cart">
+      {{ $t('cart_view.empty') }}
     </div>
     <div v-else>
-      <ListView class="cart-item" :elements="cartItems" v-slot="{element: item, index}">
-        <CountryFlag class="flag-icon" :country="item['flag']"/>
-        <span class="product-name">{{ item['name'] }}</span>
+      <ListView class="cart-item" :elements="cartItems" v-slot="{element: item}">
+        <CountryFlag class="flag-icon" :country="item.code"/>
+        <span class="product-name">{{ item.name }}</span>
         <div class="quantity-block">
-          <button @click="item['quantity']--">–</button>
-          <span class="product-quantity">{{ item['quantity'] }} шт.</span>
-          <button @click="item['quantity']++">+</button>
+          <button @click="cartStore.decreaseCount(item)" :disabled="item.quantity <= 1">–</button>
+          <span class="product-quantity">{{ item.quantity }} {{ $t('products.count') }}</span>
+          <button @click="cartStore.increaseCount(item)" :disabled="item.quantity >= item.max_quantity">+</button>
         </div>
         <div class="cost-block">
           <span>Стоимость:</span>
-          <span class="product-cost">{{ item['price'].toFixed(2) }} {{ currency_symbol }}</span>
+          <span class="product-cost">{{ item.formattedPrice }}</span>
         </div>
-        <button class="remove-btn" @click="removeFromCart(item.id)">
+        <button class="remove-btn" @click="cartStore.removeItem(item)">
           <TrashIcon/>
         </button>
       </ListView>
       <hr>
       <div class="total-price-block">
         <div>
-          <span>Сумма к оплате:</span>
-          <span class="total-price">{{totalPrice}} {{currency_symbol}}</span>
+          <span>{{ $t('cart_view.total') }}:</span>
+          <span class="total-price">{{ totalPrice }} {{ currentCurrency.sign }}</span>
         </div>
-        <CommonButton tabindex="0">Выбрать способ оплаты</CommonButton>
+        <CommonButton tabindex="0">{{ $t('buttons.payment_method') }}</CommonButton>
       </div>
     </div>
   </ViewBlock>
@@ -117,7 +98,7 @@ const totalPrice = computed(() => {
       margin: 10px;
       cursor: pointer;
 
-      &:hover {
+      &:hover, &:disabled {
         opacity: .7;
       }
     }

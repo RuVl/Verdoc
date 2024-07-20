@@ -11,7 +11,7 @@ import logo_icon from '@/assets/logo_icon.png'
     <div class="site-info">
       <span class="name">Verif-<span style="color: var(--accent-color)">docs</span></span>
       <br>
-      <span class="description">Документы верификации</span>
+      <span class="description">{{ $t('site_info.logo_description')}}</span>
     </div>
   </router-link>
 </template>

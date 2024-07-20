@@ -1,17 +1,13 @@
 <script setup>
-import DropdownIcon from "@/components/icons/IconDropdown.vue";
 import {ref} from "vue";
-
-const currencies = ref([
-  {code: 'usd', name: 'USD', symbol: '$'},
-  {code: 'rub', name: 'RUB', symbol: '₽'},
-]);
+import {useCurrenciesStore} from "@/stores/currencies";
+import DropdownIcon from "@/components/icons/IconDropdown.vue";
 
 const isActive = ref(false);
-const selectedCurrency = ref(currencies.value[0]);
+const currenciesStore = useCurrenciesStore();
 
 function selectCurrency(currency) {
-  selectedCurrency.value = currency;
+  currenciesStore.setCurrency(currency);
   isActive.value = false;
 }
 </script>
@@ -19,13 +15,13 @@ function selectCurrency(currency) {
 <template>
   <div tabindex="0" class="currency-switch" :class="{ active: isActive }" @keydown.enter="isActive = !isActive" @blur="isActive = false">
     <div class="selected-currency" @click="isActive = !isActive">
-      <span>{{ selectedCurrency.name }}</span>
+      <span>{{ currenciesStore.currentCurrency.code }}</span>
       <DropdownIcon class="dropdown-icon"/>
     </div>
 
     <ul v-if="isActive" class="dropdown-menu">
-      <li v-for="currency in currencies" :key="currency.code" @click="selectCurrency(currency)">
-        <span>{{ currency.name }}</span>
+      <li v-for="currency in currenciesStore.currencies" :key="currency.code" @click="selectCurrency(currency)">
+        <span>{{ currency.code }}</span>
       </li>
     </ul>
   </div>

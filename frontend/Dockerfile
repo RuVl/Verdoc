@@ -1,5 +1,5 @@
 # Use Node.js for building the frontend
-FROM node:20.14.0 AS build
+FROM node:20.14.0 AS build-stage
 LABEL authors="RuVl_13"
 
 # Set enviroment variables
@@ -22,7 +22,7 @@ FROM nginx:1.26.0
 LABEL authors="RuVl_13"
 
 # Copy built files to Nginx
-COPY --from=build /usr/src/app/dist /usr/share/nginx/html
+COPY --from=build-stage /usr/src/app/dist /usr/share/nginx/html
 
 # Copy the nginx configuration file
 COPY ./nginx/verdoc.conf /etc/nginx/conf.d/

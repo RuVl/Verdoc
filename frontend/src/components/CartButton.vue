@@ -1,16 +1,18 @@
 <script setup>
 import CartIcon from "@/components/icons/IconCart.vue";
 import CircleCounter from "@/components/CircleCounter.vue";
-import {ref} from "vue";
+import {useCartStore} from "@/stores/cart.js";
+import {storeToRefs} from "pinia";
 
-const counter = ref(2);
+const cartStore = useCartStore();
+const {cartItemCount} = storeToRefs(cartStore);
 </script>
 
 <template>
   <router-link class="cart-btn-wrapper" :to="{name: 'cart'}">
     <CartIcon size="small"/>
-    <span>Корзина</span>
-    <CircleCounter :count="counter"/>
+    <span>{{$t('buttons.cart')}}</span>
+    <CircleCounter v-if="cartItemCount > 0" :count="cartItemCount"/>
   </router-link>
 </template>
 

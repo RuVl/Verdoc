@@ -6,14 +6,14 @@ import InputWrapper from "@/components/InputWrapper.vue";
 
 <template>
   <ViewBlock>
-    <template #title>Мои покупки</template>
+    <template #title>{{ $t('routes.my_purchases') }}</template>
     <form class="get-files-form" method="post">
-      <span>Введите email для получения файлов:</span>
+      <span>{{ $t('purchases.email.ask') }}:</span>
       <div class="in-row">
         <InputWrapper>
-          <input name="email" type="email" placeholder="Введите email">
+          <input name="email" type="email" :placeholder="$t('purchases.email.placeholder')">
         </InputWrapper>
-        <CommonButton tabindex="0">Отправить ссылки</CommonButton>
+        <CommonButton tabindex="0">{{ $t('buttons.send_links') }}</CommonButton>
       </div>
       TODO: reCAPTCHA
     </form>

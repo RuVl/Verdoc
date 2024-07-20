@@ -1,22 +1,22 @@
 <script setup>
+import {ref, computed} from 'vue';
+import {useI18n} from 'vue-i18n';
 import Logo from "@/components/Logo.vue";
 import LanguageSwitch from "@/components/LanguageSwitch.vue";
 import CartButton from "@/components/CartButton.vue";
 
 defineProps({
-  links: {
-    type: Array,
-    default: [
-      {name: 'Как работает?', path_name: 'info'},
-      {name: 'Контакты', path_name: 'contacts'},
-      {name: 'Мои покупки', path_name: 'purchases'}
-    ],
-    validator(value) {
-      return value.every((v) => v.hasOwnProperty('name') && v.hasOwnProperty('path_name'));
-    }
-  },
   extended: Boolean
 });
+
+const {t} = useI18n();
+const ct = (msg) => computed(() => t(msg));
+
+const links = ref([
+  {name: ct('navigation.how_it_works'), path_name: 'info'},
+  {name: ct('navigation.contacts'), path_name: 'contacts'},
+  {name: ct('navigation.my_purchases'), path_name: 'purchases'}
+]);
 </script>
 
 <template>

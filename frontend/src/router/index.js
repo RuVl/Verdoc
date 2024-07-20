@@ -5,37 +5,37 @@ const routes = [
 		name: 'main',
 		path: '',
 		component: () => import("@/views/Home.vue"),
-		meta: {title: 'Главная'}
+		meta: {name: 'routes.main'}
 	},
 	{
 		name: 'info',
 		path: '/info',
 		component: () => import("@/views/Info.vue"),
-		meta: {parent: 'main', title: 'Информация'}
+		meta: {parent: 'main', name: 'routes.info'}
 	},
 	{
 		name: 'contacts',
 		path: '/contacts',
 		component: () => import("@/views/Contacts.vue"),
-		meta: {parent: 'main', title: 'Контакты'}
+		meta: {parent: 'main', name: 'routes.contacts'}
 	},
 	{
 		name: 'purchases',
 		path: '/purchases',
 		component: () => import("@/views/MyPurchases.vue"),
-		meta: {parent: 'main', title: 'Мои покупки'}
+		meta: {parent: 'main', name: 'routes.my_purchases'}
 	},
 	{
 		name: 'cart',
 		path: '/cart',
 		component: () => import("@/views/Cart.vue"),
-		meta: {parent: 'main', title: 'Корзина'}
+		meta: {parent: 'main', name: 'routes.cart'}
 	},
 	{
 		name: 'support',
 		path: '/support',
 		component: () => import("@/views/Support.vue"),
-		meta: {parent: 'main', title: 'Поддержка'}
+		meta: {parent: 'main', name: 'routes.support'}
 	},
 ];
 

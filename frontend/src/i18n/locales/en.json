@@ -1,0 +1,45 @@
+{
+	"buttons": {
+		"buy_now": "Buy now",
+		"cart": "@:routes.cart",
+		"payment_method": "Choose payment method",
+		"send_links": "Send links",
+		"support": "Store support"
+	},
+	"cart_view": {
+		"empty": "Your shopping cart is empty!",
+		"total": "Payment amount"
+	},
+	"navigation": {
+		"contacts": "@:routes.contacts",
+		"how_it_works": "How it works",
+		"my_purchases": "@:routes.my_purchases"
+	},
+	"products": {
+		"count": "pc",
+		"currency": "Currency",
+		"list": "List of products"
+	},
+	"purchases": {
+		"email": {
+			"ask": "Enter the email address to receive the files",
+			"placeholder": "Enter email"
+		}
+	},
+	"routes": {
+		"cart": "Cart",
+		"contacts": "Contacts",
+		"info": "Information",
+		"main": "Main",
+		"my_purchases": "My purchases",
+		"support": "Support"
+	},
+	"site_info": {
+		"description": "The largest website selling photos of documents that will help you pass verification",
+		"logo_description": "Verification documents",
+		"title": {
+			"first": "Documents from various countries for",
+			"second": "passing verification"
+		}
+	}
+}

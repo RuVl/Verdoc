@@ -4,7 +4,7 @@ import ViewBlock from "@/components/ViewBlock.vue";
 
 <template>
   <ViewBlock class="info-block">
-    <template #title>Информация</template>
+    <template #title>{{ $t('routes.info') }}</template>
     <p>
       Lorem ipsum dolor sit amet, consectetur adipisicing elit. Eligendi illum iure libero tenetur. Ad aliquid assumenda beatae commodi cupiditate
       dolorem ea eos eveniet facere harum, impedit in ipsam ipsum itaque iure iusto labore magnam, neque nulla omnis optio possimus praesentium

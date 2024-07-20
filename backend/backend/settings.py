@@ -9,7 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(
     DEBUG=(bool, False),  # set casting, default value
 )
-environ.Env.read_env(BASE_DIR / '.env')
+# environ.Env.read_env(BASE_DIR / 'dev.env')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -21,11 +21,17 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
+CORS_ORIGIN_ALLOW_ALL = True  # WARNING! Do not use this in production!
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:5173",
+# ]
 
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS')
 
 # Application definition
 INSTALLED_APPS = [
+    'modeltranslation',
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -33,7 +39,13 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
+    'rest_framework',
     'corsheaders',
+
+    'djmoney',
+    'djmoney.contrib.exchange',
+
+    'passport'
 ]
 
 MIDDLEWARE = [
@@ -88,11 +100,22 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+SERIALIZATION_MODULES = {
+    'json': 'djmoney.serializers'
+}
+
 # Internationalization
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
 USE_I18N = True
+USE_L10N = True
+LANGUAGE_CODE = 'en-us'
+LANGUAGES = (
+    ('en', 'English'),
+    ('ru', 'Russian')
+)
+MODELTRANSLATION_DEFAULT_LANGUAGE = 'en'
+
 USE_TZ = True
+TIME_ZONE = 'UTC'
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
@@ -100,3 +123,11 @@ STATIC_ROOT = BASE_DIR / 'static'
 STATICFILES_DIRS = []  # List of non-standard paths
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Currency
+CURRENCIES = ('USD', 'RUB')
+BASE_CURRENCY = 'USD'
+EXCHANGE_BACKEND = 'djmoney.contrib.exchange.backends.OpenExchangeRatesBackend'
+OPEN_EXCHANGE_RATES_APP_ID = env('OPENEXCHANGERATES_APP_ID')
+# Schedule the task for update currencies
+# https://channels.readthedocs.io/en/stable/topics/worker.html

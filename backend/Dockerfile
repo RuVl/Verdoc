@@ -4,6 +4,7 @@ LABEL authors="RuVl_13"
 # Set enviroment variables
 ENV TZ Europe/Moscow
 ENV PIP_ROOT_USER_ACTION=ignore
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Prepare project directory

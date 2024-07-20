@@ -1,107 +1,69 @@
 <script setup>
-import {ref} from "vue";
+import {ref, onMounted} from "vue";
 import CountryFlag from 'vue-country-flag-next';
 import CommonButton from "@/components/CommonButton.vue";
 import CurrencySwitch from "@/components/CurrencySwitch.vue";
 import CartIcon from '@/components/icons/IconCart.vue'
 import Block from "@/components/Block.vue";
 import ProductsList from "@/components/ListView.vue";
+import apiClient from "@/api/index.js";
+import Country from "@/models/Country.js";
+import {useCartStore} from "@/stores/cart.js";
 
-const categories = ref([
-  {
-    id: 1,
-    flag: 'au',
-    name: 'Австралия',
-    products: [
-      {
-        id: 1,
-        name: 'Австралия паспорт скан',
-        quantity: 24,
-        price: 123
-      },
-      {
-        id: 2,
-        name: 'Австралии DL фото с одной стороны + Drive Safely card + Medicare card',
-        quantity: 24,
-        price: 123
-      },
-      {
-        id: 3,
-        name: 'Австралия DL фото с двух сторон + селфи + паспорт + селфи + Австралия DL фото с двух сторон + селфи + паспорт + селфи 4 Medicare карта',
-        quantity: 24,
-        price: 123
-      },
-    ]
-  },
-  {
-    id: 2,
-    flag: 'ar',
-    name: 'Аргентина',
-    products: [
-      {
-        id: 4,
-        name: 'Австралия паспорт скан',
-        quantity: 24,
-        price: 123
-      },
-      {
-        id: 5,
-        name: 'Австралии DL фото с одной стороны + Drive Safely card + Medicare card',
-        quantity: 24,
-        price: 123
-      },
-      {
-        id: 6,
-        name: 'Австралия DL фото с двух сторон + селфи + паспорт + селфи + Австралия DL фото с двух сторон + селфи + паспорт + селфи 4 Medicare карта',
-        quantity: 24,
-        price: 123
-      },
-    ]
+const countries = ref([]);
+
+async function fetchCountries() {
+  try {
+    const response = await apiClient.get('/countries/');
+    countries.value = response.data.map(countryData => Country.fromApi(countryData));
+  } catch (error) {
+    console.error('Error fetching countries:', error);
   }
-]);
+}
 
-const currency_symbol = ref('₽');
+onMounted(fetchCountries);
 
-function buy_now(product) {
+const cartStore = useCartStore();
+
+function buy_now(passport) {
   alert('TODO: buy window');
 }
 
-function add2cart(product) {
-  alert('TODO: add to cart');
+function add2cart(passport) {
+  cartStore.addItem(passport);
 }
 </script>
 
 <template>
   <Block class="site-info">
-    <h2>Документы различных стран для <span style="color: var(--accent-color)">прохождения верификации</span></h2>
-    <div class="description">Самый большой сайт с продажей фотографий документов, которые помогут пройти верификацию</div>
-
+    <h2>{{ $t('site_info.title.first') }} <span style="color: var(--accent-color)">{{ $t('site_info.title.second') }}</span></h2>
+    <div class="description">{{ $t('site_info.description') }}</div>
     <div class="support-btn-wrapper">
-      <CommonButton style="padding: 20px 30px" href="support">Поддержка магазина</CommonButton>
+      <CommonButton style="padding: 20px 30px" href="support">{{ $t('buttons.support') }}</CommonButton>
     </div>
   </Block>
 
   <Block class="product-table">
     <div class="controls">
-      <span>Список товаров</span>
+      <span>{{ $t('products.list') }}</span>
       <span class="currency-switch-wrapper">
-        Валюта:
+        {{ $t('products.currency') }}:
         <CurrencySwitch/>
       </span>
     </div>
     <hr>
-    <ProductsList v-for="category in categories" class="" :elements="category.products">
+    <ProductsList v-for="country in countries" :key="country.id" :elements="country.passports">
       <template #title>
-        <CountryFlag class="flag-icon" :country="category.flag" size="big"/>
-        <span>{{ category.name }}</span>
+        <CountryFlag class="flag-icon" :country="country.code" size="big"/>
+        <span>{{ country.name }}</span>
       </template>
-      <template #default="{element: product}">
-        <CountryFlag class="flag-icon" :country="category.flag"/>
-        <span class="product-name">{{ product['name'] }}</span>
-        <span class="product-quantity">{{ product['quantity'] }} шт.</span>
-        <span class="product-cost">{{ product['price'].toFixed(2) }} {{ currency_symbol }}</span>
-        <CommonButton class="buy-now-btn" :action="() => buy_now(product)">Купить сейчас</CommonButton>
-        <a class="add2cart-btn" @click="add2cart(product)">
+      <template #default="{element: passport}">
+        <CountryFlag class="flag-icon" :country="country.code"/>
+        <span class="product-name">{{ passport.name }}</span>
+        <span class="product-quantity">{{ passport.max_quantity }} {{ $t('products.count') }}.</span>
+        <span class="product-cost">{{ passport.formattedPrice }}</span>
+        <CommonButton class="buy-now-btn" :action="() => buy_now(passport)">{{ $t('buttons.buy_now') }}</CommonButton>
+        <a class="add2cart-btn" @click="add2cart(passport)">
           <CartIcon/>
         </a>
       </template>
@@ -114,8 +76,9 @@ function add2cart(product) {
   min-height: 284px;
   position: relative;
   box-sizing: border-box;
+  border: none;
   padding: 50px 65px;
-  background: linear-gradient(90deg, #ffffff, transparent) no-repeat right, url("@/assets/banner_background.jpg") no-repeat right;
+  background: linear-gradient(90deg, #ffffff, transparent) no-repeat right, url("@/assets/banner_background.jpg") no-repeat center right -1px;
   background-size: min(100%, var(--banner-width)) 100%, auto 100%;
 
   & > h2 {
@@ -181,6 +144,7 @@ function add2cart(product) {
 
     border-radius: 100%;
     width: $height;
+    min-width: $height;
     background-position-x: calc(($height - $width) / 2);
     background-repeat: no-repeat;
 

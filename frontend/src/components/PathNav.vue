@@ -13,7 +13,7 @@ for (let route = router.currentRoute.value; ; route = router.resolve({name: rout
 <template>
   <nav v-if="route_chain" class="path-nav">
     <span v-for="route in route_chain">
-      <router-link :to="route">{{ route.meta.title }}</router-link>
+      <router-link :to="route">{{ $t(route.meta.name) }}</router-link>
     </span>
   </nav>
 </template>

@@ -1,0 +1,45 @@
+{
+	"buttons": {
+		"buy_now": "Купить сейчас",
+		"cart": "@:routes.cart",
+		"payment_method": "Выбрать способ оплаты",
+		"send_links": "Отправить ссылки",
+		"support": "Поддержка магазина"
+	},
+	"cart_view": {
+		"empty": "Ваша корзина пуста!",
+		"total": "Сумма к оплате"
+	},
+	"navigation": {
+		"contacts": "@:routes.contacts",
+		"how_it_works": "Как работает?",
+		"my_purchases": "@:routes.my_purchases"
+	},
+	"products": {
+		"count": "шт",
+		"currency": "Валюта",
+		"list": "Список товаров"
+	},
+	"purchases": {
+		"email": {
+			"ask": "Введите email для получения файлов",
+			"placeholder": "Введите email"
+		}
+	},
+	"routes": {
+		"cart": "Корзина",
+		"contacts": "Контакты",
+		"info": "Информация",
+		"main": "Главная",
+		"my_purchases": "Мои покупки",
+		"support": "Поддержка"
+	},
+	"site_info": {
+		"description": "Самый большой сайт с продажей фотографий документов, которые помогут пройти верификацию",
+		"logo_description": "Документы верификации",
+		"title": {
+			"first": "Документы различных стран для",
+			"second": "прохождения верификации"
+		}
+	}
+}

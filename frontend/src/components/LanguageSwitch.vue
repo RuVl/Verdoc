@@ -1,33 +1,29 @@
 <script setup>
 import {ref} from 'vue';
+import {useLanguagesStore} from '@/stores/languages';
 import CountryFlag from 'vue-country-flag-next';
-import DropdownIcon from "@/components/icons/IconDropdown.vue";
-
-const languages = ref([
-  {code: 'gb', name: 'English'},
-  {code: 'ru', name: 'Русский'},
-  {code: 'fr', name: 'Français'}
-]);
+import DropdownIcon from '@/components/icons/IconDropdown.vue';
 
 const isActive = ref(false);
-const selectedLanguage = ref(languages.value[0]);
+const languagesStore = useLanguagesStore();
 
-function selectLanguage(language) {
-  selectedLanguage.value = language;
-  isActive.value = false;
+function setLanguage(language) {
+  languagesStore.setLanguage(language).then(
+      () => {isActive.value = false}
+  );
 }
 </script>
 
 <template>
   <div tabindex="0" class="lang-switch" :class="{ active: isActive }" @blur="isActive = false" @keydown.enter="isActive = !isActive">
     <div class="selected-flag" @click="isActive = !isActive">
-      <CountryFlag :country="selectedLanguage.code" class="flag-icon"/>
+      <CountryFlag :country="languagesStore.currentLanguage.flag" class="flag-icon"/>
       <DropdownIcon class="dropdown-icon"/>
     </div>
 
     <ul v-if="isActive" class="dropdown-menu">
-      <li v-for="language in languages" :key="language.code" @click="selectLanguage(language)">
-        <CountryFlag :country="language.code" class="flag-icon"/>
+      <li v-for="language in languagesStore.languages" :key="language.code" @click="setLanguage(language)">
+        <CountryFlag :country="language.flag" class="flag-icon"/>
         <span class="lang-name">{{ language.name }}</span>
       </li>
     </ul>

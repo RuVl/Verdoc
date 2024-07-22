@@ -1,24 +1,26 @@
 <script setup>
 defineProps({
   href: String,
-  action: {
-    type: Function,
-    default: () => console.warn('Not implemented!')
-  },
   disabled: Boolean
 });
 </script>
 
 <template>
-  <router-link v-if="href" class="cmn-btn" :class="{ disabled: disabled }" :to="disabled ? '' : href.startsWith('/') ? href : {name: href}">
-    <slot></slot>
+  <router-link v-if="href" class="cmn-btn" :class="{ disabled: disabled }" :to="href.startsWith('/') ? href : {name: href}">
+    <slot/>
   </router-link>
-  <a v-else @click="disabled ? '' : action()" class="cmn-btn" :class="{ disabled: disabled }">
-    <slot></slot>
-  </a>
+  <button v-else class="cmn-btn" :class="{ disabled: disabled }">
+    <slot/>
+  </button>
 </template>
 
 <style lang="scss" scoped>
+button.cmn-btn {
+  font: inherit;
+  border: none;
+  line-height: inherit;
+}
+
 .cmn-btn {
   place-content: center;
   text-decoration: none;
@@ -36,6 +38,7 @@ defineProps({
 }
 
 .cmn-btn.disabled {
+  pointer-events: none;
   opacity: .5;
 
   &:hover {

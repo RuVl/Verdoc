@@ -15,7 +15,7 @@ export default class Country extends TranslatableModel {
 		const data = {
 			id: country.id,
 			code: country.code,
-			passports: country.passports.map(passport => Passport.fromApi(passport, this)),
+			passports: country.passports.map(passport => Passport.fromApi(passport, country)),
 		};
 		return new Country(assign(country, data));
 	}

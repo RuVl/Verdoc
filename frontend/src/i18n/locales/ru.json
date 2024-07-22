@@ -1,5 +1,6 @@
 {
 	"buttons": {
+		"add2cart": "Добавить в корзину",
 		"buy_now": "Купить сейчас",
 		"cart": "@:routes.cart",
 		"payment_method": "Выбрать способ оплаты",
@@ -8,6 +9,14 @@
 	},
 	"cart_view": {
 		"empty": "Ваша корзина пуста!",
+		"modal_window": {
+			"choose_method": "Выберите способ оплаты",
+			"email": {
+				"ask": "Введите E-mail адрес",
+				"placeholder": "@:purchases.email.placeholder"
+			},
+			"title": "Оплата заказа"
+		},
 		"total": "Сумма к оплате"
 	},
 	"navigation": {
@@ -16,9 +25,13 @@
 		"my_purchases": "@:routes.my_purchases"
 	},
 	"products": {
-		"count": "шт",
+		"count": "шт.",
 		"currency": "Валюта",
-		"list": "Список товаров"
+		"list": "Список товаров",
+		"modal_window": {
+			"title": "Покупка товара",
+			"total_amount": "на общую сумму"
+		}
 	},
 	"purchases": {
 		"email": {

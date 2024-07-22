@@ -9,6 +9,7 @@
 	--accent-color: #2f61f2;
 	--second-color: #f0f0f0;
 	--second-color-text: color-mix(in srgb, var(--second-color) 75%, black);
+	--red-color: #e4102c;
 }
 
 *, *::before, *::after {

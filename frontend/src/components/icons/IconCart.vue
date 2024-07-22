@@ -19,6 +19,10 @@ defineProps({
 </template>
 
 <style scoped>
+.i-cart {
+  display: block;
+}
+
 .i-cart.small {
   width: 18px;
 }

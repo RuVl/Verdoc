@@ -1,5 +1,5 @@
 <script setup>
-import {ref, onMounted} from "vue";
+import {ref, onMounted, watch} from "vue";
 import CountryFlag from 'vue-country-flag-next';
 import CommonButton from "@/components/CommonButton.vue";
 import CurrencySwitch from "@/components/CurrencySwitch.vue";
@@ -9,6 +9,10 @@ import ProductsList from "@/components/ListView.vue";
 import apiClient from "@/api/index.js";
 import Country from "@/models/Country.js";
 import {useCartStore} from "@/stores/cart.js";
+import ModalWindow from "@/components/ModalWindow.vue";
+import CounterShow from "@/components/CounterShow.vue";
+import CounterChanger from "@/components/CounterChanger.vue";
+import SelectPayment from "@/components/SelectPayment.vue";
 
 const countries = ref([]);
 
@@ -25,12 +29,22 @@ onMounted(fetchCountries);
 
 const cartStore = useCartStore();
 
-function buy_now(passport) {
-  alert('TODO: buy window');
-}
+const selectedPassport = ref(null);
+const instant_buy = ref(false);
+const select_payment = ref(false);
+
+watch(instant_buy, value => {
+  if (!value) {
+    selectedPassport.quantity = 0;
+    selectedPassport.value = null;
+  }
+});
 
 function add2cart(passport) {
   cartStore.addItem(passport);
+
+  if (instant_buy.value)
+    instant_buy.value = false;
 }
 </script>
 
@@ -60,14 +74,37 @@ function add2cart(passport) {
       <template #default="{element: passport}">
         <CountryFlag class="flag-icon" :country="country.code"/>
         <span class="product-name">{{ passport.name }}</span>
-        <span class="product-quantity">{{ passport.max_quantity }} {{ $t('products.count') }}.</span>
-        <span class="product-cost">{{ passport.formattedPrice }}</span>
-        <CommonButton class="buy-now-btn" :action="() => buy_now(passport)">{{ $t('buttons.buy_now') }}</CommonButton>
+        <CounterShow>{{ passport.max_quantity }} {{ $t('products.count') }}</CounterShow>
+        <CounterShow>{{ passport.formattedPrice() }}</CounterShow>
+        <CommonButton class="buy-now-btn" @click="selectedPassport=passport; instant_buy=true">
+          {{ $t('buttons.buy_now') }}
+        </CommonButton>
         <a class="add2cart-btn" @click="add2cart(passport)">
           <CartIcon/>
         </a>
       </template>
     </ProductsList>
+    <ModalWindow v-model:is_opened="instant_buy">
+      <template #title>
+        {{ $t('products.modal_window.title') }}
+      </template>
+      <template #default>
+        <div class="instant-buy-dialog">
+          <span class="product-name">{{ selectedPassport.name }}</span>
+          <CounterChanger class="quantity-counter" v-model:item="selectedPassport" counter_name="quantity"/>
+          {{ $t('products.modal_window.total_amount') }}
+          <span class="total-cost">{{ selectedPassport.formattedPrice(true) }}</span>
+          <div class="buttons-block">
+            <button class="add2cart-btn" @click="add2cart(selectedPassport)" type="button">
+              <CartIcon size="small"/>
+              {{ $t('buttons.add2cart') }}
+            </button>
+            <CommonButton type="button" @click="instant_buy=false; select_payment=true">{{ $t('buttons.buy_now') }}</CommonButton>
+          </div>
+        </div>
+      </template>
+    </ModalWindow>
+    <SelectPayment v-model:is_opened="select_payment" :passport="selectedPassport"/>
   </Block>
 </template>
 
@@ -157,26 +194,68 @@ function add2cart(passport) {
     margin-right: 20px;
   }
 
-  .product-cost, .product-quantity {
-    display: inline-block;
-    text-align: center;
-    min-width: 100px;
-    padding: 10px 0;
-    background-color: var(--second-color);
-    border-radius: 10px;
-  }
-
   .buy-now-btn {
     margin-left: auto;
   }
 
   .add2cart-btn {
+    display: inline-block;
     text-decoration: none;
     line-height: 0;
 
     &:hover {
       cursor: pointer;
       opacity: .7;
+    }
+  }
+}
+
+.instant-buy-dialog {
+  display: flex;
+  gap: 10px;
+  flex-direction: column;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 300px;
+
+  .product-name {
+    font-size: 14px;
+  }
+
+  .quantity-counter, .total-cost {
+    margin-bottom: 10px;
+  }
+
+  .total-cost {
+    font-size: 24px;
+    font-weight: 700;
+  }
+
+  .buttons-block {
+    display: flex;
+    gap: 25px;
+    justify-content: space-evenly;
+    align-items: stretch;
+    width: 100%;
+
+    .add2cart-btn {
+      text-wrap: nowrap;
+      border: none;
+      background: none;
+      color: var(--accent-color);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 14px;
+
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      justify-content: center;
+
+      &:hover {
+        opacity: .7;
+      }
     }
   }
 }

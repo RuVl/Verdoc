@@ -9,7 +9,7 @@ export default class Passport extends TranslatableModel {
 		this.id = data.id;
 		this.code = data.code; // Country code
 		this.price = data.price;
-		this.quantity = data.quantity;
+		this._quantity = data._quantity;
 		this.max_quantity = data.max_quantity;
 	}
 
@@ -18,7 +18,7 @@ export default class Passport extends TranslatableModel {
 			id: passport.id,
 			code: country.code,
 			price: passport.price,
-			quantity: 1, // default quantity to buy
+			_quantity: 1, // default quantity to buy
 			max_quantity: passport.quantity,
 		};
 
@@ -30,12 +30,29 @@ export default class Passport extends TranslatableModel {
 		return currenciesStore.convert(this.price.amount, this.price.currency);
 	}
 
-	get formattedPrice() {
+	formattedPrice(use_quantity = false) {
 		const currenciesStore = useCurrenciesStore();
-		return `${this.amount.toFixed(2)} ${currenciesStore.currentCurrency.sign}`;
+		const price = use_quantity ? this.amount * this._quantity : this.amount;
+		return `${price.toFixed(2)} ${currenciesStore.currentCurrency.sign}`;
 	}
 
 	getTranslationFields() {
 		return ['name'];
+	}
+
+	get quantity() {
+		return this._quantity;
+	}
+
+	set quantity(value) {
+		if (value < 1) {
+			this._quantity = 1;
+			return;
+		}
+		if (value > this.max_quantity) {
+			this._quantity = this.max_quantity;
+			return;
+		}
+		this._quantity = value;
 	}
 }

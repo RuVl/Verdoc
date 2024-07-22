@@ -1,18 +1,28 @@
 <script setup>
+import {ref} from "vue";
+import {storeToRefs} from "pinia";
+import {useCartStore} from "@/stores/cart.js";
+import {useCurrenciesStore} from "@/stores/currencies.js";
+import plisio_icon from '@/assets/plisio.png';
 import CountryFlag from 'vue-country-flag-next';
 import ViewBlock from "@/components/ViewBlock.vue";
 import ListView from "@/components/ListView.vue";
 import TrashIcon from "@/components/icons/IconTrash.vue";
 import CommonButton from "@/components/CommonButton.vue";
-import {useCartStore} from "@/stores/cart.js";
-import {storeToRefs} from "pinia";
-import {useCurrenciesStore} from "@/stores/currencies.js";
+import ModalWindow from "@/components/ModalWindow.vue";
+import InputWrapper from "@/components/InputWrapper.vue";
+import CustomSelect from "@/components/CustomSelect.vue";
+import QuantityChanger from "@/components/CounterChanger.vue";
+import {useOrderStore} from "@/stores/order.js";
+import SelectPayment from "@/components/SelectPayment.vue";
 
 const cartStore = useCartStore();
 const {cartItems, cartItemCount, totalPrice} = storeToRefs(cartStore);
 
 const currencyStore = useCurrenciesStore();
 const {currentCurrency} = storeToRefs(currencyStore);
+
+const is_opened = ref(false);
 </script>
 
 <template>
@@ -22,17 +32,13 @@ const {currentCurrency} = storeToRefs(currencyStore);
       {{ $t('cart_view.empty') }}
     </div>
     <div v-else>
-      <ListView class="cart-item" :elements="cartItems" v-slot="{element: item}">
+      <ListView class="cart-item" :elements="cartItems" v-slot="{element: item, index: i}">
         <CountryFlag class="flag-icon" :country="item.code"/>
         <span class="product-name">{{ item.name }}</span>
-        <div class="quantity-block">
-          <button @click="cartStore.decreaseCount(item)" :disabled="item.quantity <= 1">–</button>
-          <span class="product-quantity">{{ item.quantity }} {{ $t('products.count') }}</span>
-          <button @click="cartStore.increaseCount(item)" :disabled="item.quantity >= item.max_quantity">+</button>
-        </div>
+        <QuantityChanger v-model:item="cartItems[i]" counter_name="quantity"/>
         <div class="cost-block">
           <span>Стоимость:</span>
-          <span class="product-cost">{{ item.formattedPrice }}</span>
+          <span class="product-cost">{{ item.formattedPrice() }}</span>
         </div>
         <button class="remove-btn" @click="cartStore.removeItem(item)">
           <TrashIcon/>
@@ -44,7 +50,10 @@ const {currentCurrency} = storeToRefs(currencyStore);
           <span>{{ $t('cart_view.total') }}:</span>
           <span class="total-price">{{ totalPrice }} {{ currentCurrency.sign }}</span>
         </div>
-        <CommonButton tabindex="0">{{ $t('buttons.payment_method') }}</CommonButton>
+        <CommonButton tabindex="0" @click="is_opened=true">
+          {{ $t('buttons.payment_method') }}
+        </CommonButton>
+        <SelectPayment v-model:is_opened="is_opened"/>
       </div>
     </div>
   </ViewBlock>
@@ -81,26 +90,13 @@ const {currentCurrency} = storeToRefs(currencyStore);
       margin-right: 20px;
     }
 
-    .product-cost, .product-quantity {
+    .product-cost {
       display: inline-block;
       text-align: center;
       min-width: 100px;
       padding: 10px 0;
       background-color: var(--second-color);
       border-radius: 10px;
-    }
-
-    .quantity-block > button {
-      background: none;
-      border: 0;
-      font-weight: 600;
-      font-size: 24px;
-      margin: 10px;
-      cursor: pointer;
-
-      &:hover, &:disabled {
-        opacity: .7;
-      }
     }
 
     .cost-block {
@@ -111,7 +107,7 @@ const {currentCurrency} = storeToRefs(currencyStore);
 
     .remove-btn {
       border: 0;
-      background-color: #e4102c;
+      background-color: var(--red-color);
       border-radius: 5px;
       cursor: pointer;
       height: 27px;

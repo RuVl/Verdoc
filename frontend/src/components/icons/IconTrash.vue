@@ -10,7 +10,7 @@
   </svg>
 </template>
 
-<style scoped lang="scss">
+<style scoped>
 svg {
   display: block;
 }

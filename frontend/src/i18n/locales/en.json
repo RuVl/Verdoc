@@ -1,13 +1,22 @@
 {
 	"buttons": {
+		"add2cart": "Add to cart",
 		"buy_now": "Buy now",
 		"cart": "@:routes.cart",
-		"payment_method": "Choose payment method",
+		"payment_method": "Choose a payment method",
 		"send_links": "Send links",
 		"support": "Store support"
 	},
 	"cart_view": {
 		"empty": "Your shopping cart is empty!",
+		"modal_window": {
+			"choose_method": "Choose payment method",
+			"email": {
+				"ask": "Enter email address",
+				"placeholder": "@:purchases.email.placeholder"
+			},
+			"title": "Order payment"
+		},
 		"total": "Payment amount"
 	},
 	"navigation": {
@@ -16,9 +25,13 @@
 		"my_purchases": "@:routes.my_purchases"
 	},
 	"products": {
-		"count": "pc",
+		"count": "pc.",
 		"currency": "Currency",
-		"list": "List of products"
+		"list": "List of products",
+		"modal_window": {
+			"title": "Buying goods",
+			"total_amount": "for the total amount"
+		}
 	},
 	"purchases": {
 		"email": {

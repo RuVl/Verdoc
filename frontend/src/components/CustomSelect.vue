@@ -8,7 +8,6 @@ defineProps({
   name: String
 });
 
-
 const is_opened = ref(false);
 
 const selectElement = (index) => {

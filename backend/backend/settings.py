@@ -2,14 +2,12 @@ from pathlib import Path
 
 import environ
 
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
     DEBUG=(bool, False),  # set casting, default value
 )
-# environ.Env.read_env(BASE_DIR / 'dev.env')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -21,11 +19,7 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
-CORS_ORIGIN_ALLOW_ALL = True  # WARNING! Do not use this in production!
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:5173",
-# ]
-
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS')
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS')
 
 # Application definition
@@ -45,7 +39,8 @@ INSTALLED_APPS = [
     'djmoney',
     'djmoney.contrib.exchange',
 
-    'passport'
+    'passport',
+    'order'
 ]
 
 MIDDLEWARE = [
@@ -83,6 +78,7 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 DATABASES = {
     'default': env.db()
 }
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -100,11 +96,12 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Custom serializers
 SERIALIZATION_MODULES = {
     'json': 'djmoney.serializers'
 }
 
-# Internationalization
+# Internationalization and localization
 USE_I18N = True
 USE_L10N = True
 LANGUAGE_CODE = 'en-us'
@@ -114,6 +111,7 @@ LANGUAGES = (
 )
 MODELTRANSLATION_DEFAULT_LANGUAGE = 'en'
 
+# Timezone
 USE_TZ = True
 TIME_ZONE = 'UTC'
 
@@ -122,8 +120,6 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'static'
 STATICFILES_DIRS = []  # List of non-standard paths
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
 # Currency
 CURRENCIES = ('USD', 'RUB')
 BASE_CURRENCY = 'USD'
@@ -131,3 +127,21 @@ EXCHANGE_BACKEND = 'djmoney.contrib.exchange.backends.OpenExchangeRatesBackend'
 OPEN_EXCHANGE_RATES_APP_ID = env('OPENEXCHANGERATES_APP_ID')
 # Schedule the task for update currencies
 # https://channels.readthedocs.io/en/stable/topics/worker.html
+
+# Plisio
+PLISIO_SECRET_KEY = env('PLISIO_SECRET_KEY')
+
+# Email config
+EMAIL_CONFIG = env.email()
+
+EMAIL_HOST_USER = EMAIL_CONFIG['EMAIL_HOST_USER']
+EMAIL_HOST_PASSWORD = EMAIL_CONFIG['EMAIL_HOST_PASSWORD']
+
+EMAIL_HOST = EMAIL_CONFIG['EMAIL_HOST']
+EMAIL_PORT = EMAIL_CONFIG['EMAIL_PORT']
+
+DEFAULT_FROM_EMAIL = env.get_value('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
+
+EMAIL_BACKEND = EMAIL_CONFIG['EMAIL_BACKEND']
+EMAIL_USE_TLS = EMAIL_CONFIG.get('EMAIL_USE_TLS', False)
+EMAIL_USE_SSL = EMAIL_CONFIG.get('EMAIL_USE_SSL', False)

@@ -8,7 +8,7 @@ class Country(models.Model):
 
 
 class Passport(models.Model):
-    country = models.ForeignKey('Country', related_name='passports', on_delete=models.CASCADE)
+    country = models.ForeignKey(Country, related_name='passports', on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255)
     price = MoneyField(max_digits=10, decimal_places=2, default_currency='USD')
@@ -16,5 +16,11 @@ class Passport(models.Model):
 
 
 class PassportFile(models.Model):
-    passport = models.ForeignKey('Passport', related_name='files', on_delete=models.CASCADE)
+    class PassportFileStatus(models.TextChoices):
+        IN_STOCK = 'IN_STOCK', 'In stock'
+        RESERVED = 'RESERVED', 'Reserved'
+        SOLD = 'SOLD', 'Sold'
+
+    passport = models.ForeignKey(Passport, related_name='files', on_delete=models.SET_NULL, null=True)
     file_path = models.FileField(upload_to='passports/', unique=True)
+    status = models.CharField(max_length=20, choices=PassportFileStatus.choices, default=PassportFileStatus.IN_STOCK, editable=False)

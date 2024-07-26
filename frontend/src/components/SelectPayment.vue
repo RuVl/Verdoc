@@ -5,8 +5,11 @@ import CustomSelect from "@/components/CustomSelect.vue";
 import InputWrapper from "@/components/InputWrapper.vue";
 import Passport from "@/models/Passport.js";
 import {useOrderStore} from "@/stores/order.js";
+import {ref} from "vue";
 
 const is_opened = defineModel('is_opened', {default: true});
+const user_email = ref();
+const payment_method_index = ref(0);
 
 const props = defineProps({
   passport: Passport
@@ -15,8 +18,11 @@ const props = defineProps({
 const orderStore = useOrderStore();
 
 function buy() {
-  if (props.passport) orderStore.buyPassport(props.passport);
-  else orderStore.makeOrder();
+  const payment_method = orderStore.payment_methods[payment_method_index.value];
+  if (payment_method.name !== 'plisio') return;
+
+  if (props.passport) orderStore.buyPassport(props.passport, user_email.value);
+  else orderStore.makeOrder(user_email.value);
 
   is_opened.value = false;
 }
@@ -26,11 +32,11 @@ function buy() {
   <ModalWindow v-model:is_opened="is_opened">
     <template #title>{{ $t('cart_view.modal_window.title') }}</template>
     <template #default>
-      <form class="payment-form" method="post">
+      <form class="payment-form" @submit.prevent="buy">
         {{ $t('cart_view.modal_window.email.ask') }}
-        <InputWrapper><input type="email" :placeholder="$t('cart_view.modal_window.email.placeholder')"></InputWrapper>
+        <InputWrapper><input name="user_email" v-model="user_email" type="email" :placeholder="$t('cart_view.modal_window.email.placeholder')"></InputWrapper>
         {{ $t('cart_view.modal_window.choose_method') }}
-        <CustomSelect :elements="orderStore.payment_methods" class="payment-method">
+        <CustomSelect v-model:selected="payment_method_index" :elements="orderStore.payment_methods" class="payment-method">
           <template #default="{element: method}">
             <img class="option-icon" :src="method.icon"/>
             <span class="option-text">{{ method.name }}</span>
@@ -39,7 +45,7 @@ function buy() {
             <input type="hidden" name="payment-method" :value="method.name">
           </template>
         </CustomSelect>
-        <CommonButton @click="buy()" class="submit-btn">{{ $t('buttons.payment_method') }}</CommonButton>
+        <CommonButton type="submit" class="submit-btn">{{ $t('buttons.payment_method') }}</CommonButton>
       </form>
     </template>
   </ModalWindow>

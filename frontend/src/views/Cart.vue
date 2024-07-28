@@ -32,7 +32,7 @@ const is_opened = ref(false);
         <span class="product-name">{{ item.name }}</span>
         <QuantityChanger v-model:item="cartItems[i]" counter_name="quantity"/>
         <div class="cost-block">
-          <span>Стоимость:</span>
+          <span>{{ $t('cart_view.cost') }}:</span>
           <span class="product-cost">{{ item.formattedPrice() }}</span>
         </div>
         <button class="remove-btn" @click="cartStore.removeItem(item)">

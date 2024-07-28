@@ -8,6 +8,7 @@
 		"support": "Store support"
 	},
 	"cart_view": {
+		"cost": "Cost",
 		"empty": "Your shopping cart is empty!",
 		"modal_window": {
 			"choose_method": "Choose payment method",

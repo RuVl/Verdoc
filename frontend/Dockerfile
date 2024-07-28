@@ -27,8 +27,10 @@ COPY --from=build-stage /usr/src/app/dist /usr/share/nginx/html
 # Copy the nginx configuration file
 COPY ./nginx/verdoc.conf /etc/nginx/conf.d/
 
-# Expose the port 80
-#EXPOSE 80
+CMD mkdir -p /usr/www/logs && touch /usr/www/logs/nginx_access.log
 
-# Start Nginx to serve the application
-#ENTRYPOINT nginx -g daemon off
+# Expose the port 80
+EXPOSE 80
+
+# Start Nginx to serve the application (in foreground)
+ENTRYPOINT nginx -g daemon off

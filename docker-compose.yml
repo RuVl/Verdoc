@@ -4,6 +4,8 @@
 volumes:
   postgres_volume:
     driver: local
+  static_volume:
+    driver: local
 
 networks:
   verdoc:
@@ -15,6 +17,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    volumes:
+      - static_volume:/usr/src/app/static
     ports:
       - "80:80"
       - "443:443"
@@ -42,6 +46,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    volumes:
+      - static_volume:/usr/src/app/static
     env_file:
       - backend/.env
       - postgres/.env  # For db connection

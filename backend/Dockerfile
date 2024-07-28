@@ -18,5 +18,8 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy project to directory
 COPY . ./
 
+CMD python3 manage.py makemigrations && python3 manage.py migrate
+CMD python3 manage.py collectstatic --no-input
+
 # Run app
-ENTRYPOINT gunicorn -c gunicorn.py backend.wsgi:application
+ENTRYPOINT gunicorn -c gunicorn.py --access-logfile - backend.wsgi:application -b 0.0.0.0:8000

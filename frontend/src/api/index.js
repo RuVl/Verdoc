@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-	baseURL: 'http://localhost:8000/api',
+	baseURL: 'https://verif-docs.com/api',
 	timeout: 10000,
 	headers: {
 		'Content-Type': 'application/json',

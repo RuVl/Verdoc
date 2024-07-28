@@ -9,6 +9,7 @@ import requests
 from django import views
 from django.conf import settings
 from django.core.mail import send_mail
+from django.db.models import QuerySet
 from django.http import HttpResponseNotFound, FileResponse
 from django.shortcuts import get_object_or_404
 from djmoney.money import Money
@@ -16,7 +17,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from passport.models import PassportFile
+from passport.models import PassportFile, Passport
 from .models import Order, Transaction, DownloadLink
 from .serializers import OrderSerializer
 
@@ -24,12 +25,39 @@ logger = logging.getLogger(__name__)
 
 
 class OrderCreateView(APIView):
+    def __init__(self, **kwargs):
+        super().__init__(kwargs)
+        self.reserved_files: list[QuerySet[PassportFile]] = []
+
+    def cancel_reservation(self):
+        for file in self.reserved_files:
+            file.update(status=PassportFile.PassportFileStatus.IN_STOCK)
+        self.reserved_files = []
+
+    def reserve_files(self, order):
+        for item in order.items.all():
+            passport: Passport = item.passport
+            files_to_reserve = passport.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK)[:item.quantity]
+
+            if files_to_reserve.count() < item.quantity:
+                self.cancel_reservation()
+                raise ValueError(f'Not enough files available for passport {passport.name}')
+
+            files_to_reserve.update(status=PassportFile.PassportFileStatus.RESERVED)
+            self.reserved_files.append(files_to_reserve)
+
+        return True
+
     def post(self, request, *args, **kwargs):
         serializer = OrderSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         order = serializer.save()
+        try:
+            self.reserve_files(order)
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Подготовка данных для инвойса в Plisio
         invoice_data = {
@@ -50,6 +78,7 @@ class OrderCreateView(APIView):
             redirect_url = response.json()['data']['invoice_url']
             return Response({'redirect_url': redirect_url}, status=status.HTTP_201_CREATED)
         else:
+            self.cancel_reservation()
             return Response({'detail': 'Error creating invoice'}, status=status.HTTP_400_BAD_REQUEST)
 
 

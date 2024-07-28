@@ -3,17 +3,12 @@ import {ref} from "vue";
 import {storeToRefs} from "pinia";
 import {useCartStore} from "@/stores/cart.js";
 import {useCurrenciesStore} from "@/stores/currencies.js";
-import plisio_icon from '@/assets/plisio.png';
 import CountryFlag from 'vue-country-flag-next';
 import ViewBlock from "@/components/ViewBlock.vue";
 import ListView from "@/components/ListView.vue";
 import TrashIcon from "@/components/icons/IconTrash.vue";
 import CommonButton from "@/components/CommonButton.vue";
-import ModalWindow from "@/components/ModalWindow.vue";
-import InputWrapper from "@/components/InputWrapper.vue";
-import CustomSelect from "@/components/CustomSelect.vue";
 import QuantityChanger from "@/components/CounterChanger.vue";
-import {useOrderStore} from "@/stores/order.js";
 import SelectPayment from "@/components/SelectPayment.vue";
 
 const cartStore = useCartStore();
@@ -48,7 +43,7 @@ const is_opened = ref(false);
       <div class="total-price-block">
         <div>
           <span>{{ $t('cart_view.total') }}:</span>
-          <span class="total-price">{{ totalPrice }} {{ currentCurrency.sign }}</span>
+          <span class="total-price">{{ totalPrice.toFixed(2) }} {{ currentCurrency.sign }}</span>
         </div>
         <CommonButton tabindex="0" @click="is_opened=true">
           {{ $t('buttons.payment_method') }}

@@ -9,7 +9,7 @@ import requests
 from django import views
 from django.conf import settings
 from django.core.mail import send_mail
-from django.db.models import QuerySet
+from django.db import transaction
 from django.http import HttpResponseNotFound, FileResponse
 from django.shortcuts import get_object_or_404
 from djmoney.money import Money
@@ -17,7 +17,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from passport.models import PassportFile, Passport
+from passport.models import PassportFile
 from .models import Order, Transaction, DownloadLink
 from .serializers import OrderSerializer
 
@@ -26,60 +26,63 @@ logger = logging.getLogger(__name__)
 
 class OrderCreateView(APIView):
     def __init__(self, **kwargs):
-        super().__init__(kwargs)
-        self.reserved_files: list[QuerySet[PassportFile]] = []
+        super().__init__(**kwargs)
+        self.reserved_files: list[PassportFile] = []
 
     def cancel_reservation(self):
         for file in self.reserved_files:
-            file.update(status=PassportFile.PassportFileStatus.IN_STOCK)
+            file.status = PassportFile.PassportFileStatus.IN_STOCK
+        PassportFile.objects.bulk_update(self.reserved_files, ['status'])
         self.reserved_files = []
 
     def reserve_files(self, order):
         for item in order.items.all():
-            passport: Passport = item.passport
-            files_to_reserve = passport.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK)[:item.quantity]
+            passport = item.passport
+            files_to_reserve = list(passport.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK)[:item.quantity])
 
-            if files_to_reserve.count() < item.quantity:
+            if len(files_to_reserve) < item.quantity:
                 self.cancel_reservation()
                 raise ValueError(f'Not enough files available for passport {passport.name}')
 
-            files_to_reserve.update(status=PassportFile.PassportFileStatus.RESERVED)
-            self.reserved_files.append(files_to_reserve)
+            for file in files_to_reserve:
+                file.status = PassportFile.PassportFileStatus.RESERVED
+                self.reserved_files.append(file)
 
-        return True
+        PassportFile.objects.bulk_update(self.reserved_files, ['status'])
 
     def post(self, request, *args, **kwargs):
         serializer = OrderSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        order = serializer.save()
-        try:
-            self.reserve_files(order)
-        except ValueError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            order = serializer.save()
+            try:
+                self.reserve_files(order)
+            except ValueError as e:
+                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Подготовка данных для инвойса в Plisio
-        invoice_data = {
-            'order_name': f'Order {order.id}',
-            'order_number': order.id,
-            'source_currency': order.total_price.currency,
-            'source_amount': order.total_price.amount,
-            'callback_url': request.build_absolute_uri('/api/orders/status/'),
-            'email': order.user_email,
-            'api_key': settings.PLISIO_SECRET_KEY,
-            'language': 'en_US',
-            'expire_min': '60'
-        }
+            # Подготовка данных для инвойса в Plisio
+            invoice_data = {
+                'order_name': f'Order {order.id}',
+                'order_number': order.id,
+                'source_currency': order.total_price.currency,
+                'source_amount': order.total_price.amount,
+                'callback_url': request.build_absolute_uri('/api/orders/status/'),
+                'email': order.user_email,
+                'api_key': settings.PLISIO_SECRET_KEY,
+                'language': 'en_US',
+                'expire_min': '60'
+            }
 
-        response = requests.get('https://plisio.net/api/v1/invoices/new', params=invoice_data)
-        if response.status_code == 200 and response.json().get('status') == 'success':
-            logger.info(f'Order {order.id} created successfully')
-            redirect_url = response.json()['data']['invoice_url']
-            return Response({'redirect_url': redirect_url}, status=status.HTTP_201_CREATED)
-        else:
-            self.cancel_reservation()
-            return Response({'detail': 'Error creating invoice'}, status=status.HTTP_400_BAD_REQUEST)
+            response = requests.get('https://plisio.net/api/v1/invoices/new', params=invoice_data)
+            if response.status_code == 200 and response.json().get('status') == 'success':
+                logger.info(f'Order {order.id} created successfully')
+                redirect_url = response.json()['data']['invoice_url']
+                return Response({'redirect_url': redirect_url}, status=status.HTTP_201_CREATED)
+            else:
+                self.cancel_reservation()
+                return Response({'detail': 'Error creating invoice'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PlisioCallbackView(APIView):

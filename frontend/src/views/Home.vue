@@ -33,13 +33,6 @@ const selectedPassport = ref(null);
 const instant_buy = ref(false);
 const select_payment = ref(false);
 
-watch(instant_buy, value => {
-  if (!value) {
-    selectedPassport.quantity = 0;
-    selectedPassport.value = null;
-  }
-});
-
 function add2cart(passport) {
   cartStore.addItem(passport);
 
@@ -53,7 +46,7 @@ function add2cart(passport) {
     <h2>{{ $t('site_info.title.first') }} <span style="color: var(--accent-color)">{{ $t('site_info.title.second') }}</span></h2>
     <div class="description">{{ $t('site_info.description') }}</div>
     <div class="support-btn-wrapper">
-      <CommonButton style="padding: 20px 30px" href="support">{{ $t('buttons.support') }}</CommonButton>
+      <CommonButton href="support">{{ $t('buttons.support') }}</CommonButton>
     </div>
   </Block>
 
@@ -72,15 +65,17 @@ function add2cart(passport) {
         <span>{{ country.name }}</span>
       </template>
       <template #default="{element: passport}">
-        <CountryFlag class="flag-icon" :country="country.code"/>
+        <CountryFlag class="flag-icon item" :country="country.code"/>
         <span class="product-name">{{ passport.name }}</span>
-        <CounterShow>{{ passport.max_quantity }} {{ $t('products.count') }}</CounterShow>
-        <CounterShow>{{ passport.formattedPrice() }}</CounterShow>
+        <CounterShow class="counter">{{ passport.max_quantity }} {{ $t('products.count') }}</CounterShow>
+        <CounterShow class="counter">{{ passport.formattedPrice() }}</CounterShow>
         <CommonButton class="buy-now-btn" @click="selectedPassport=passport; instant_buy=true">
-          {{ $t('buttons.buy_now') }}
+          <span class="longer">{{ $t('buttons.buy_now') }}</span>
+          <span class="shorter">{{ $t('buttons.buy') }}</span>
         </CommonButton>
         <a class="add2cart-btn" @click="add2cart(passport)">
           <CartIcon/>
+          <span>{{ $t('buttons.to_cart') }}</span>
         </a>
       </template>
     </ProductsList>
@@ -138,6 +133,10 @@ function add2cart(passport) {
     top: 100%;
     bottom: 0;
     line-height: 0;
+
+    > * {
+      padding: 20px 30px;
+    }
   }
 }
 
@@ -196,6 +195,10 @@ function add2cart(passport) {
 
   .buy-now-btn {
     margin-left: auto;
+
+    .shorter {
+      display: none;
+    }
   }
 
   .add2cart-btn {
@@ -206,6 +209,10 @@ function add2cart(passport) {
     &:hover {
       cursor: pointer;
       opacity: .7;
+    }
+
+    span {
+      display: none;
     }
   }
 }
@@ -255,6 +262,104 @@ function add2cart(passport) {
 
       &:hover {
         opacity: .7;
+      }
+    }
+  }
+}
+
+@media screen and (max-width: 1024px) {
+  .product-table {
+    --buy-btn-size: 110px;
+
+    .product-name {
+      width: fit-content;
+      flex: calc(100% - var(--buy-btn-size) * 2);
+    }
+
+    .buy-now-btn {
+      box-sizing: content-box;
+      width: var(--buy-btn-size);
+    }
+
+    .counter, .add2cart-btn {
+      order: 1;
+    }
+
+    .add2cart-btn {
+      margin-left: auto;
+      padding-right: 15px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+
+      span {
+        display: inline;
+      }
+    }
+
+    .item.flag-icon {
+      display: none;
+    }
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .site-info {
+    text-align: center;
+    min-height: 0;
+    background: linear-gradient(90deg, #ffffff, #ffffff7f) no-repeat right, url("@/assets/banner_background.jpg") no-repeat center left -1px;
+    background-size: 100%, auto 100%;
+    padding: 35px 20px 50px 20px;
+
+    h2 {
+      text-align: center;
+      font-size: 20px;
+      line-height: 30px;
+      font-weight: 700;
+      text-wrap: balance;
+    }
+
+    .description {
+      display: inline-block;
+      text-align: center;
+      font-size: 12px;
+      width: 90%;
+    }
+
+    .support-btn-wrapper {
+      left: 0;
+      right: 0;
+      text-align: center;
+
+      > * {
+        padding: 15px 20px;
+      }
+    }
+  }
+
+  .product-table {
+    --buy-btn-size: 70px;
+
+    .controls .currency-switch-wrapper {
+      font-size: 0;
+    }
+
+    .buy-now-btn {
+      .shorter {
+        display: inline;
+      }
+
+      .longer {
+        display: none;
+      }
+    }
+
+    .add2cart-btn {
+      padding-right: 20px;
+
+      span {
+        display: none;
       }
     }
   }

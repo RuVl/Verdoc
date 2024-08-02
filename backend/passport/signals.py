@@ -8,5 +8,6 @@ from .models import PassportFile
 @receiver(post_delete, sender=PassportFile, dispatch_uid='passport_file_delete')
 def update_passport_quantity(sender, instance, **kwargs):
     passport = instance.passport
-    passport.quantity = passport.files.count()
-    passport.save()
+    if passport:
+        passport.quantity = passport.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK).count()
+        passport.save()

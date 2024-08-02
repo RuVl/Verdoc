@@ -6,7 +6,7 @@ import ViewBlock from "@/components/ViewBlock.vue";
 <template>
   <ViewBlock>
     <template #title>{{ $t('routes.support') }}</template>
-    TODO
+    Telegram: <a href="https://t.me/panther_documents">@panther_documents</a>
   </ViewBlock>
 </template>
 

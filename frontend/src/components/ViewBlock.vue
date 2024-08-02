@@ -5,8 +5,10 @@ import PathNav from "@/components/PathNav.vue";
 
 <template>
   <Block class="view-block">
-    <PathNav/>
-    <h2 class="title"><slot name="title"/></h2>
+    <PathNav class="path-nav"/>
+    <h2 class="title">
+      <slot name="title"/>
+    </h2>
     <slot/>
   </Block>
 </template>
@@ -15,6 +17,14 @@ import PathNav from "@/components/PathNav.vue";
 .view-block {
   & > .title {
     margin: 20px 0;
+  }
+}
+
+@media only screen and (max-width: 480px) {
+  .view-block {
+    > .path-nav, > .title {
+      text-align: center;
+    }
   }
 }
 </style>

@@ -25,7 +25,6 @@ export const useCartStore = defineStore('cart', {
 		}
 	},
 	persist: {
-		debug: true,
 		serializer: {
 			deserialize: (s) => {
 				const parsed = JSON.parse(s);

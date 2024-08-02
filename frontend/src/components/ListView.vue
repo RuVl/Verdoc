@@ -35,7 +35,7 @@ defineProps({
 
       display: flex;
       align-items: center;
-      gap: 25px;
+      gap: 10px 25px;
       padding: 15px 0;
       border-bottom: 1px solid var(--second-color);
 
@@ -49,5 +49,28 @@ defineProps({
       }
     }
   }
+}
+
+@media screen and (max-width: 1024px) {
+  .products-list {
+    border-bottom: 1px solid var(--second-color);
+
+    .title {
+      justify-content: center;
+    }
+    
+    > ul {
+      > li {
+        flex-wrap: wrap;
+        gap: 10px 20px;
+      }
+    }
+  }
+}
+
+@media screen and (max-width: 480px){
+.products-list > ul > li {
+  gap: 10px 5px;
+}
 }
 </style>

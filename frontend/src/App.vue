@@ -20,4 +20,10 @@ import SiteNav from "@/components/SiteNav.vue";
   margin-top: var(--main-margin);
   box-sizing: content-box;
 }
+
+@media only screen and (max-width: 768px) {
+  .main-view {
+    margin-top: 0;
+  }
+}
 </style>

@@ -1,11 +1,13 @@
 {
 	"buttons": {
 		"add2cart": "Add to cart",
+		"buy": "Buy",
 		"buy_now": "Buy now",
 		"cart": "@:routes.cart",
 		"payment_method": "Choose a payment method",
 		"send_links": "Send links",
-		"support": "Store support"
+		"support": "Store support",
+		"to_cart": "@:buttons.add2cart"
 	},
 	"cart_view": {
 		"cost": "Cost",

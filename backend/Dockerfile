@@ -22,4 +22,4 @@ CMD python3 manage.py makemigrations && python3 manage.py migrate
 CMD python3 manage.py collectstatic --no-input
 
 # Run app
-ENTRYPOINT gunicorn -c gunicorn.py --access-logfile - backend.wsgi:application -b 0.0.0.0:8000
+ENTRYPOINT gunicorn -c gunicorn.py --access-logfile - --error-logfile - backend.wsgi:application

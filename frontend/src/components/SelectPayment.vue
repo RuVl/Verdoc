@@ -1,14 +1,14 @@
 <script setup>
-import CommonButton from "@/components/CommonButton.vue";
-import ModalWindow from "@/components/ModalWindow.vue";
-import CustomSelect from "@/components/CustomSelect.vue";
-import InputWrapper from "@/components/InputWrapper.vue";
+import {ref} from "vue";
 import Passport from "@/models/Passport.js";
 import {useOrderStore} from "@/stores/order.js";
-import {ref} from "vue";
+import ModalWindow from "@/components/ModalWindow.vue";
+import PrettyInput from "@/components/PrettyInput.vue";
+import CommonButton from "@/components/CommonButton.vue";
+import CustomSelect from "@/components/CustomSelect.vue";
 
 const is_opened = defineModel('is_opened', {default: true});
-const user_email = ref();
+const user_email = ref('');
 const payment_method_index = ref(0);
 
 const props = defineProps({
@@ -34,7 +34,7 @@ function buy() {
     <template #default>
       <form class="payment-form" @submit.prevent="buy">
         {{ $t('cart_view.modal_window.email.ask') }}
-        <InputWrapper><input name="user_email" v-model="user_email" type="email" :placeholder="$t('cart_view.modal_window.email.placeholder')"></InputWrapper>
+        <pretty-input name="user_email" v-model="user_email" type="email" :placeholder="$t('cart_view.modal_window.email.placeholder')"/>
         {{ $t('cart_view.modal_window.choose_method') }}
         <CustomSelect v-model:selected="payment_method_index" :elements="orderStore.payment_methods" class="payment-method">
           <template #default="{element: method}">

@@ -42,3 +42,13 @@ export const useCurrenciesStore = defineStore('currencies', {
 		}
 	}
 });
+
+// After mounting app
+setTimeout(async () => {
+	await useCurrenciesStore().updateExchangeRates();
+}, 1);
+
+// Update currency rate from server every hour
+setInterval(async () => {
+	await useCurrenciesStore().updateExchangeRates();
+}, 3600_000);

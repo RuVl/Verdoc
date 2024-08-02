@@ -7,9 +7,4 @@ max_requests = 1000
 worker_class = 'gevent'
 workers = cpu_count()
 
-env = {
-    'DJANGO_SETTINGS_MODULE': 'backend.settings'
-}
-
-reload = True
-name = 'backend'
+loglevel = 'info'

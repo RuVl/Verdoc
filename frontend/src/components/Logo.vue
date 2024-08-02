@@ -3,15 +3,15 @@ import logo_icon from '@/assets/logo_icon.png'
 </script>
 
 <template>
-  <router-link class="logo-wrapper" :to="{name: 'main'}">
-    <div class="logo_icon">
+  <router-link class="logo-link" :to="{name: 'main'}">
+    <div class="logo-icon">
       <img :src="logo_icon" alt="logo">
       <div class="circle"></div>
     </div>
     <div class="site-info">
       <span class="name">Verif-<span style="color: var(--accent-color)">docs</span></span>
       <br>
-      <span class="description">{{ $t('site_info.logo_description')}}</span>
+      <span class="description">{{ $t('site_info.logo_description') }}</span>
     </div>
   </router-link>
 </template>
@@ -19,9 +19,15 @@ import logo_icon from '@/assets/logo_icon.png'
 <style lang="scss" scoped>
 .logo-wrapper {
   display: flex;
+  align-items: center;
+}
+
+.logo-link {
+  display: flex;
   flex-direction: row;
   align-items: center;
   gap: 25px;
+  width: fit-content;
   text-decoration: none;
 
   &:active, &:visited {
@@ -33,10 +39,18 @@ import logo_icon from '@/assets/logo_icon.png'
   }
 }
 
-.logo_icon {
+.logo-icon {
+  --size: 44px;
+
   position: relative;
-  height: 48px;
-  width: 44px;
+  height: calc(var(--size) + 4px);
+  width: var(--size);
+
+  > img {
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+  }
 
   > .circle {
     position: absolute;
@@ -44,8 +58,8 @@ import logo_icon from '@/assets/logo_icon.png'
     z-index: -1;
     background-color: var(--accent-color);
 
-    width: 44px;
-    height: 44px;
+    width: var(--size);
+    height: var(--size);
     border-radius: 100%;
   }
 }
@@ -63,6 +77,26 @@ import logo_icon from '@/assets/logo_icon.png'
   > .description {
     font-size: 12px;
     float: left;
+  }
+}
+
+@media only screen and (max-width: 350px) {
+  .logo-link {
+    gap: 15px;
+
+    .logo-icon {
+      --size: 35px;
+    }
+  }
+
+  .site-info {
+    > .description {
+      font-size: 10px;
+    }
+
+    > .name {
+      font-size: 16px;
+    }
   }
 }
 </style>

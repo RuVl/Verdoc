@@ -11,4 +11,11 @@
   background-color: var(--second-color);
   border-radius: 10px;
 }
+
+@media screen and (max-width: 480px){
+  .counter {
+    min-width: 85px;
+    padding: 5px 0;
+  }
+}
 </style>

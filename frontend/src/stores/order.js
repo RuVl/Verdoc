@@ -11,6 +11,8 @@ export const useOrderStore = defineStore('order', {
 	}),
 	actions: {
 		async makeOrder(email) {
+			console.log(`Buy all products in cart for ${email}`);
+
 			const cartStore = useCartStore();
 			const items = cartStore.cartItems.map(item => ({
 				passport_id: item.id,
@@ -29,6 +31,8 @@ export const useOrderStore = defineStore('order', {
 			}
 		},
 		async buyPassport(passport, email) {
+			console.log(`Buy passport ${passport.name} for ${email}`);
+
 			try {
 				const response = await apiClient.post('/order/', {
 					user_email: email,

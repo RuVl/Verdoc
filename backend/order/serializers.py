@@ -1,3 +1,4 @@
+from django.db import transaction
 from djmoney.contrib.exchange.models import convert_money
 from rest_framework import serializers
 
@@ -6,22 +7,37 @@ from passport.models import Passport
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
-    passport_id = serializers.PrimaryKeyRelatedField(
-        queryset=Passport.objects.all(), source='passport'
-    )
+    """
+        OrderItem model serializer for OrderSerializer.\n
+        Accepts only passport_id and quantity.
+    """
+
+    passport_id = serializers.PrimaryKeyRelatedField(queryset=Passport.objects.filter(quantity__gt=0), source='passport')
 
     class Meta:
         model = OrderItem
         fields = ['passport_id', 'quantity']
 
+    def validate(self, data):
+        passport = data['passport']
+        if passport.quantity < data['quantity']:
+            raise serializers.ValidationError(detail=f'Not enough available passports for {passport.id}')
+
+        return data
+
 
 class OrderSerializer(serializers.ModelSerializer):
+    """
+        Order model serializer for making order.\n
+        Accepts only user_email and list of OrderItemsSerializer.
+    """
+
     items = OrderItemSerializer(many=True)
     total_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)  # Calculate total_price while validate
 
     class Meta:
         model = Order
-        fields = ['id', 'user_email', 'items', 'total_price']
+        fields = ['user_email', 'items', 'total_price']
 
     def validate(self, data):
         total_price = 0
@@ -41,13 +57,21 @@ class OrderSerializer(serializers.ModelSerializer):
         items_data = validated_data.pop('items')
         total_price = validated_data.pop('total_price')
 
-        order = Order.objects.create(total_price=total_price, **validated_data)
+        with transaction.atomic():
+            # Create order and reserve it
+            order = Order.objects.create(total_price=total_price, **validated_data)
 
-        for item_data in items_data:
-            OrderItem.objects.create(order=order, **item_data)
+            # Create and reserve order_items
+            for item_data in items_data:
+                OrderItem.objects.create(order=order, **item_data).reserve()
 
-        return order
+            return order
 
-    def save(self, **kwargs):
-        self.validated_data.update(kwargs)
-        return super().save(**kwargs)
+
+class SendDownloadLinksSerializer(serializers.Serializer):
+    """
+        Serializer for sending download links.\n
+        Accepts only email.
+    """
+
+    email = serializers.EmailField()

@@ -5,6 +5,9 @@ import vue from '@vitejs/plugin-vue'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+	define: {
+		__API_URL__: JSON.stringify('https://verif-docs.com/api')
+	},
 	plugins: [
 		vue(),
 	],

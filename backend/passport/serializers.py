@@ -1,4 +1,3 @@
-from djmoney.money import Money
 from modeltranslation.translator import translator
 from modeltranslation.utils import get_translation_fields
 from rest_framework import serializers
@@ -6,21 +5,10 @@ from rest_framework import serializers
 from passport.models import Passport, Country
 
 
-class MoneyFieldSerializer(serializers.Field):
-    def to_representation(self, value):
-        return {"amount": float(value.amount), "currency": str(value.currency)}
-
-    def to_internal_value(self, data):
-        try:
-            amount = data.get("amount")
-            currency = data.get("currency")
-            return Money(amount, currency)
-        except (ValueError, TypeError):
-            raise serializers.ValidationError("Invalid money value")
-
-
 # noinspection PyUnresolvedReferences
 class TranslationFieldsMixin:
+    """ Mixin for serializers that have translatable fields. """
+
     def get_fields(self):
         opts = self.Meta
         orig_fields = opts.fields
@@ -37,14 +25,17 @@ class TranslationFieldsMixin:
 
 
 class PassportSerializer(TranslationFieldsMixin, serializers.ModelSerializer):
-    price = MoneyFieldSerializer()
+    """ Passport serializer for sending product info. """
 
     class Meta:
         model = Passport
-        fields = ('id', 'name', 'quantity', 'price')
+        # noinspection PyUnresolvedReferences
+        fields = ('id', 'name', 'quantity', 'price', 'price_currency')  # price_currency - dynamic field from MoneyField
 
 
 class CountrySerializer(TranslationFieldsMixin, serializers.ModelSerializer):
+    """ Country serializer for sending all country's passports. """
+
     passports = serializers.SerializerMethodField()
 
     class Meta:

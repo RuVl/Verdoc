@@ -1,5 +1,4 @@
 <script setup>
-
 import ViewBlock from "@/components/ViewBlock.vue";
 </script>
 

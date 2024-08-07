@@ -1,5 +1,5 @@
 <script setup>
-import logo_icon from '@/assets/logo_icon.png'
+import logo_icon from '@/assets/logo_icon.png';
 </script>
 
 <template>

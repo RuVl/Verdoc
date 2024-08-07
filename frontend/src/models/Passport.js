@@ -17,7 +17,10 @@ export default class Passport extends TranslatableModel {
 		const data = {
 			id: passport.id,
 			code: country.code,
-			price: passport.price,
+			price: {
+				amount: passport.price,
+				currency: passport.price_currency
+			},
 			_quantity: 1, // default quantity to buy
 			max_quantity: passport.quantity,
 		};

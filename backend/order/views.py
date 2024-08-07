@@ -3,12 +3,10 @@ import hmac
 import json
 import logging
 from decimal import Decimal
-from smtplib import SMTPException
 
 import requests
 from django import views
 from django.conf import settings
-from django.core.mail import send_mail
 from django.db import transaction
 from django.http import HttpResponseNotFound, FileResponse
 from django.shortcuts import get_object_or_404
@@ -18,176 +16,141 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from passport.models import PassportFile
-from .models import Order, Transaction, DownloadLink
-from .serializers import OrderSerializer
+from .models import Order, Transaction, DownloadLink, OrderItem
+from .serializers import OrderSerializer, SendDownloadLinksSerializer
+from .utils import send_download_links
 
 logger = logging.getLogger(__name__)
 
 
 class OrderCreateView(APIView):
+    """ Create a new order endpoint """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.reserved_files: list[PassportFile] = []
-
-    def cancel_reservation(self):
-        for file in self.reserved_files:
-            file.status = PassportFile.PassportFileStatus.IN_STOCK
-        PassportFile.objects.bulk_update(self.reserved_files, ['status'])
-        self.reserved_files = []
-
-    def reserve_files(self, order):
-        for item in order.items.all():
-            passport = item.passport
-            files_to_reserve = list(passport.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK)[:item.quantity])
-
-            if len(files_to_reserve) < item.quantity:
-                self.cancel_reservation()
-                raise ValueError(f'Not enough files available for passport {passport.name}')
-
-            for file in files_to_reserve:
-                file.status = PassportFile.PassportFileStatus.RESERVED
-                self.reserved_files.append(file)
-
-        PassportFile.objects.bulk_update(self.reserved_files, ['status'])
 
     def post(self, request, *args, **kwargs):
         serializer = OrderSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        with transaction.atomic():
+        try:
             order = serializer.save()
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Prepare data for plisio invoice
+        invoice_data = {
+            'order_name': f'Order {order.id}',
+            'order_number': order.id,
+            'source_currency': order.total_price.currency,
+            'source_amount': order.total_price.amount,
+            'email': order.user_email,
+            'api_key': settings.PLISIO_SECRET_KEY,
+            'language': 'en_US',
+            'expire_min': '60'
+        }
+
+        response = requests.get('https://plisio.net/api/v1/invoices/new', params=invoice_data)
+        if response.status_code == 200 and response.json().get('status') == 'success':
+            logger.info(f'Order {order.id} created successfully')
+            redirect_url = response.json()['data']['invoice_url']
+
+            return Response({'redirect_url': redirect_url}, status=status.HTTP_201_CREATED)
+        else:
+            logger.info(f'Invoice has not created for order {order.id}')
             try:
-                self.reserve_files(order)
+                with transaction.atomic():
+                    for order_item in order.items.all():
+                        order_item.passport.return2stock(order_item.quantity)
+                    order.delete()
             except ValueError as e:
-                return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                logger.warning(str(e))  # Silence errors
 
-            # Подготовка данных для инвойса в Plisio
-            invoice_data = {
-                'order_name': f'Order {order.id}',
-                'order_number': order.id,
-                'source_currency': order.total_price.currency,
-                'source_amount': order.total_price.amount,
-                'callback_url': request.build_absolute_uri('/api/orders/status/'),
-                'email': order.user_email,
-                'api_key': settings.PLISIO_SECRET_KEY,
-                'language': 'en_US',
-                'expire_min': '60'
-            }
-
-            response = requests.get('https://plisio.net/api/v1/invoices/new', params=invoice_data)
-            if response.status_code == 200 and response.json().get('status') == 'success':
-                logger.info(f'Order {order.id} created successfully')
-                redirect_url = response.json()['data']['invoice_url']
-                return Response({'redirect_url': redirect_url}, status=status.HTTP_201_CREATED)
-            else:
-                self.cancel_reservation()
-                return Response({'detail': 'Error creating invoice'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Error creating invoice'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PlisioCallbackView(APIView):
+    """ Endpoint for plisio callback """
+
     @staticmethod
-    def validate_hash(data, received_hash):
+    def validate_hash(data):
+        received_hash = data.pop('verify_hash', None)
         secret_key = settings.PLISIO_SECRET_KEY
+
         ordered_data = json.dumps(data, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
         calculated_hash = hmac.new(secret_key.encode('utf-8'), ordered_data.encode('utf-8'), hashlib.sha1).hexdigest()
+
         return calculated_hash == received_hash
 
     def post(self, request, *args, **kwargs):
-        data = request.data
-        verify_hash = data.pop('verify_hash', None)
-
-        if not self.validate_hash(data, verify_hash):
+        data = request.data.copy()
+        if not self.validate_hash(data):
             logger.warning(f'Hash verification failed for transaction {data.get("txn_id")}')
             return Response({'detail': 'Invalid verify_hash'}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-        order_number = data.get('order_number')
-        order = get_object_or_404(Order, id=order_number)
+        order = get_object_or_404(Order, id=data.get('order_number'))
+        self.update_order_status(order, data)
 
-        status_map = {
-            'new': 'PENDING',
-            'pending': 'PENDING',
-            'pending internal': 'PENDING',
-            'completed': 'PAID',
-            'expired': 'EXPIRED',
-            'mismatch': 'OVERPAID',
-            'error': 'ERROR',
-            'cancelled': 'CANCELLED',
-        }
-
-        new_status = status_map.get(data.get('status'), 'ERROR')
-        order.status = new_status
-        order.save()
-
-        source_price = None
-        if data.get('source_currency') and data.get('source_amount'):
-            source_price = Money(currency=Decimal(data.get('source_currency')), amount=data.get('source_amount'))
-
-        transaction, created = Transaction.objects.update_or_create(
-            order=order,
-            defaults={
-                'txn_id': data.get('txn_id'),
-                'status': data.get('status'),
-                'amount': Decimal(data.get('amount')),
-                'currency': data.get('currency'),
-                'source_price': source_price,
-                'source_rate': Decimal(data.get('source_rate')) if data.get('source_rate') else None,
-                'confirmations': int(data.get('confirmations')) if data.get('confirmations') else None,
-                'commission': Decimal(data.get('invoice_commission')) if data.get('invoice_commission') else None,
-            }
-        )
-
-        logger.info(f'Transaction {transaction.id} {'created' if created else 'updated'} to status {data.get('status')}')
-
-        if transaction.status in [Transaction.TransactionStatus.COMPLETED, Transaction.TransactionStatus.MISMATCH]:
-            self.sell_order(order)
-            self.send_download_link(order)
+        match order.status:
+            case Order.OrderStatus.PAID | Order.OrderStatus.OVERPAID:
+                download_links = order.sell()
+                send_download_links(download_links, order.user_email)
+            case Order.OrderStatus.EXPIRED | Order.OrderStatus.CANCELLED:
+                order.reset_reservation()
 
         return Response({'detail': 'Order and transaction status updated'}, status=status.HTTP_200_OK)
 
-    def sell_order(self, order: Order):
-        download_links = []
-        for order_item in order.items:
-            # Get reserved passport_files
-            passport_files = PassportFile.objects.filter(
-                passport=order_item.passport,
-                status=PassportFile.PassportFileStatus.RESERVED
-            )[:order_item.quantity]
+    def update_order_status(self, order: Order, data: dict) -> Transaction:
+        """ Update order and transaction status """
 
-            if len(passport_files) < order_item.quantity:
-                logger.warning(f'Not enough ({len(passport_files)} < {order_item.quantity}) passport files for order_item {order_item.id}')
+        status_map = {
+            'new': Order.OrderStatus.PENDING,
+            'pending': Order.OrderStatus.PENDING,
+            'pending internal': Order.OrderStatus.PENDING,
+            'completed': Order.OrderStatus.PAID,
+            'expired': Order.OrderStatus.EXPIRED,
+            'mismatch': Order.OrderStatus.OVERPAID,
+            'error': Order.OrderStatus.ERROR,
+            'cancelled': Order.OrderStatus.CANCELLED,
+            'cancelled duplicate': Order.OrderStatus.PENDING  # A customer has switched to another cryptocurrency
+        }
 
-            # Set passport_files status to "sold" and create DownloadLink
-            for passport_file in passport_files:
-                passport_file.status = PassportFile.PassportFileStatus.SOLD
-                download_links.append(DownloadLink.objects.create(
-                    order_item=order_item,
-                    file_path=passport_file
-                ))
+        order.status = status_map.get(data.get('status'), Order.OrderStatus.ERROR)
 
-    def send_download_link(self, order: Order):
-        """ Отправка email ссылок на скачивание """
-        download_links = DownloadLink.objects.filter(order=order).prefetch_related('order_item').order_by('order_item')
+        update_data = {
+            'txn_id': data.get('txn_id'),
+            'status': data.get('status'),
+            'amount': Decimal(data.get('amount')),
+            'currency': data.get('currency'),
+            'merchant': data.get('merchant'),
+            'merchant_id': data.get('merchant_id'),
+            'comment': data.get('comment')
+        }
 
-        message = f"Скачайте ваши файлы по ссылке:\n"
+        if data.get('source_currency') and data.get('source_amount'):
+            update_data['source_price'] = Money(currency=data.get('source_currency'), amount=Decimal(data.get('source_amount')))
 
-        for i, download_link in enumerate(download_links):
-            message += f"{i}) {download_link.get_link()} - {download_link.order_item.passport.name}\n"
+        if data.get('source_rate'):
+            update_data['source_rate'] = Decimal(data['source_rate'])
 
-        message += "Ссылки будут действительны в течение 24 часов. После этого необходимо запросить доступ повторно через форму на сайте."
+        if data.get('confirmations'):
+            update_data['confirmations'] = int(data['confirmations'])
 
-        try:
-            send_mail(
-                'Ваш заказ выполнен',
-                message,
-                None,
-                [order.user_email]
-            )
-        except SMTPException as e:
-            logger.error(f'Error sending mail to {order.user_email}: {str(e)}')
+        if data.get('invoice_commission'):
+            update_data['commission'] = Decimal(data['invoice_commission'])
+
+        with transaction.atomic():
+            order.save()
+            t, _ = Transaction.objects.update_or_create(order=order, defaults=update_data)
+
+        return t
 
 
 class DownloadLinksView(views.View):
+    """ Download sold files view """
+
     def get(self, request, *args, **kwargs):
         email = self.kwargs.get('email')
         uuid = self.kwargs.get('uuid')
@@ -204,3 +167,62 @@ class DownloadLinksView(views.View):
             return HttpResponseNotFound()
 
         return FileResponse(open(download_link.passport_file.file_path.path, 'rb'), as_attachment=True)
+
+
+class SendDownloadLinksView(APIView):
+    """ Update download links expiration and send them to customer's email """
+
+    def post(self, request, *args, **kwargs):
+        serializer = SendDownloadLinksSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user_email = serializer.validated_data['email']
+        orders = Order.objects.filter(
+            user_email=user_email,
+            status__in=[Order.OrderStatus.PAID, Order.OrderStatus.OVERPAID]
+        ).prefetch_related('items').all()
+
+        if not orders:
+            return HttpResponseNotFound()
+
+        download_links = []
+        for order in orders:
+            for order_item in order.items.all():
+                download_links.extend(self.get_order_item_links(order_item))
+
+        send_download_links(download_links, user_email)
+        return Response({'detail': 'All links are sent'}, status=status.HTTP_200_OK)
+
+    def get_order_item_links(self, order_item: OrderItem) -> list[DownloadLink]:
+        item_links = list(DownloadLink.objects.filter(order_item=order_item))
+
+        if len(item_links) < order_item.quantity:
+            logger.warning(f'Not enough download links for order item {order_item.id}')
+
+            # Try to create download links for sold product files
+            sold_files_without_link = PassportFile.objects.filter(
+                passport=order_item.passport,
+                status=PassportFile.PassportFileStatus.SOLD,
+                downloadlink__isnull=True
+            )
+
+            created_download_links = [
+                DownloadLink.objects.create(
+                    order_item=order_item,
+                    passport_file=passport_file
+                )
+                for passport_file in sold_files_without_link
+            ]
+
+            item_links.extend(created_download_links)
+
+            if len(item_links) < order_item.quantity:
+                raise ValueError(f'Not enough download links for order item {order_item.id}')
+
+        #
+        for item_link in item_links:
+            item_link.update_link()
+
+        return item_links

@@ -1,5 +1,5 @@
 <script setup>
-import {ref, onMounted, watch} from "vue";
+import {ref, onMounted} from "vue";
 import CountryFlag from 'vue-country-flag-next';
 import CommonButton from "@/components/CommonButton.vue";
 import CurrencySwitch from "@/components/CurrencySwitch.vue";

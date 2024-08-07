@@ -2,7 +2,7 @@ FROM python:3.12
 LABEL authors="RuVl_13"
 
 # Set enviroment variables
-ENV TZ Europe/Moscow
+ENV TZ=Europe/Moscow
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -18,7 +18,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy project to directory
 COPY . ./
 
-CMD python3 manage.py makemigrations && python3 manage.py migrate
+# Collect django's static files
 CMD python3 manage.py collectstatic --no-input
 
 # Run app

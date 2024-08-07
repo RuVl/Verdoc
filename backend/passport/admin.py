@@ -38,20 +38,17 @@ class PassportAdmin(TranslationAdmin):
     readonly_fields = ['quantity', 'reserved', 'sold']
     inlines = [PassportFileInline]
 
+    @admin.display(description='In Stock')
     def quantity(self, obj):
         return obj.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK).count()
 
-    quantity.short_description = 'Quantity in Stock'
-
+    @admin.display(description='Reserved')
     def reserved(self, obj):
         return obj.files.filter(status=PassportFile.PassportFileStatus.RESERVED).count()
 
-    reserved.short_description = 'Quantity reserved'
-
+    @admin.display(description='Sold')
     def sold(self, obj):
         return obj.files.filter(status=PassportFile.PassportFileStatus.SOLD).count()
-
-    sold.short_description = 'Quantity sold'
 
 
 @admin.register(PassportFile)

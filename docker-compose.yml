@@ -1,10 +1,9 @@
-# Use another config for drf
-# https://stackoverflow.com/a/75258762
-
 volumes:
-  postgres_volume:
+  postgres_volume:  # Volume for database
     driver: local
-  static_volume:
+  products_volume:  # Volume for product files
+    driver: local
+  static_volume:  # Volume with django static for serving by nginx
     driver: local
 
 networks:
@@ -30,11 +29,11 @@ services:
   postgres:
     image: postgres:16.2
     restart: unless-stopped
-    expose:
-      - 5432
-    env_file: ./postgres/.env
     volumes:
       - postgres_volume:/var/lib/postgresql/data
+    env_file: postgres/.env
+    expose:
+      - 5432
     networks:
       - verdoc
     healthcheck:
@@ -49,6 +48,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
+      - products_volume:/usr/src/app/products
       - static_volume:/usr/src/app/static
     env_file:
       - backend/.env

@@ -1,4 +1,4 @@
-# Use Node.js for building the frontend
+# Use node.js for building the frontend
 FROM node:20.14.0 AS build-stage
 LABEL authors="RuVl_13"
 
@@ -17,20 +17,21 @@ RUN npm install
 COPY . ./
 RUN npm run build
 
-# Use Nginx for serving the static files
+# Use nginx for serving the static files
 FROM nginx:1.26.0
 LABEL authors="RuVl_13"
 
-# Copy built files to Nginx
+# Copy built files to nginx
 COPY --from=build-stage /usr/src/app/dist /usr/share/nginx/html
 
 # Copy the nginx configuration file
 COPY ./nginx/verdoc.conf /etc/nginx/conf.d/
 
-# Copy SSL files
-#COPY ./nginx/ssl/ /etc/ssl/
+# Copy ssl files
+COPY ./nginx/ssl/ /etc/ssl/
 
+# Touch log files for nginx
 RUN mkdir -p /usr/www/logs && touch /usr/www/logs/nginx_access.log
 
-# Start Nginx to serve the application (in foreground)
+# Start nginx to serve the application (in foreground)
 ENTRYPOINT ["nginx", "-g", "daemon off;"]

@@ -9,6 +9,8 @@ from passport.serializers import CountrySerializer
 
 
 class CountryViewSet(viewsets.ReadOnlyModelViewSet):
+    """ Send all countries with nested passports """
+
     serializer_class = CountrySerializer
 
     def get_queryset(self):
@@ -25,6 +27,8 @@ class CountryViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ExchangeRatesView(views.APIView):
+    """ Send exchange rates """
+
     def get(self, request):
 
         rates = {rate.currency: rate.value for rate in Rate.objects.all()}

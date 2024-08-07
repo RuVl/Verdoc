@@ -1,21 +1,23 @@
 <script setup>
-import {ref} from "vue";
+import {reactive} from "vue";
 import apiClient from "@/api/index.js";
-// import VueRecaptcha from 'vue-recaptcha';
 import ViewBlock from "@/components/ViewBlock.vue";
 import CommonButton from "@/components/CommonButton.vue";
 import PrettyInput from "@/components/PrettyInput.vue";
 
-const email = ref('');
-const captcha = ref(null);
+const purchases_form = reactive({
+  email: ''
+});
 
 async function sendLinks() {
   try {
-    const response = await apiClient.post('/api/send-links/', {
-      email: email,
-      recaptcha_token: captcha,
+    const response = await apiClient.post('/send-links/', {
+      email: purchases_form.email,
+      captcha: purchases_form.captcha
     });
-    alert('Links have been sent to your email!');
+
+    if (response.status === 200)
+      window.location.href = '/';
   } catch (error) {
     console.error(error);
   }
@@ -27,9 +29,8 @@ async function sendLinks() {
     <template #title>{{ $t('routes.my_purchases') }}</template>
     <form class="get-files-form" method="post" @submit.prevent="sendLinks">
       <span>{{ $t('purchases.email.ask') }}:</span>
-      <pretty-input name="email" type="email" v-model="email" :placeholder="$t('purchases.email.placeholder')"/>
+      <pretty-input name="email" type="email" v-model="purchases_form.email" :placeholder="$t('purchases.email.placeholder')"/>
       <common-button tabindex="0">{{ $t('buttons.send_links') }}</common-button>
-      <!--<vue-recaptcha @verify="(token) => captcha = token" @expired="captcha=null" sitekey="6LejCywnAAAAALn7R9dQPhATiwmNCpHELH9XzKAu"/>-->
     </form>
   </ViewBlock>
 </template>
@@ -48,7 +49,7 @@ async function sendLinks() {
     align-items: center;
     gap: 15px;
     font-size: 14px;
-    
+
     > span {
       text-align: center;
     }

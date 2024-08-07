@@ -1,5 +1,5 @@
 <script setup>
-import {ref} from "vue";
+import {reactive} from "vue";
 import Passport from "@/models/Passport.js";
 import {useOrderStore} from "@/stores/order.js";
 import ModalWindow from "@/components/ModalWindow.vue";
@@ -8,8 +8,11 @@ import CommonButton from "@/components/CommonButton.vue";
 import CustomSelect from "@/components/CustomSelect.vue";
 
 const is_opened = defineModel('is_opened', {default: true});
-const user_email = ref('');
-const payment_method_index = ref(0);
+
+const payment_form = reactive({
+  email: '',
+  method: 0
+})
 
 const props = defineProps({
   passport: Passport
@@ -18,11 +21,11 @@ const props = defineProps({
 const orderStore = useOrderStore();
 
 function buy() {
-  const payment_method = orderStore.payment_methods[payment_method_index.value];
+  const payment_method = orderStore.payment_methods[payment_form.method];
   if (payment_method.name !== 'plisio') return;
 
-  if (props.passport) orderStore.buyPassport(props.passport, user_email.value);
-  else orderStore.makeOrder(user_email.value);
+  if (props.passport) orderStore.buyPassport(props.passport, payment_form.email);
+  else orderStore.makeOrder(payment_form.email);
 
   is_opened.value = false;
 }
@@ -34,9 +37,9 @@ function buy() {
     <template #default>
       <form class="payment-form" @submit.prevent="buy">
         {{ $t('cart_view.modal_window.email.ask') }}
-        <pretty-input name="user_email" v-model="user_email" type="email" :placeholder="$t('cart_view.modal_window.email.placeholder')"/>
+        <pretty-input name="user_email" v-model="payment_form.email" type="email" :placeholder="$t('cart_view.modal_window.email.placeholder')"/>
         {{ $t('cart_view.modal_window.choose_method') }}
-        <CustomSelect v-model:selected="payment_method_index" :elements="orderStore.payment_methods" class="payment-method">
+        <CustomSelect v-model:selected="payment_form.method" :elements="orderStore.payment_methods" class="payment-method">
           <template #default="{element: method}">
             <img class="option-icon" :src="method.icon"/>
             <span class="option-text">{{ method.name }}</span>

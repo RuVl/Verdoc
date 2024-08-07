@@ -1,5 +1,6 @@
 # Verdoc
-Verif-docs is a document purchase platform built with Vue.js for the frontend and Django REST Framework (DRF) for the backend, 
+[Verif-docs](https://verif-docs.com) is a document purchase site built with Vue.js for the frontend and Django REST Framework (DRF) for the 
+backend,
 with nginx handling proxying and serving in Docker containers.
 
 ## Getting Started
@@ -16,35 +17,35 @@ with nginx handling proxying and serving in Docker containers.
     cd verif-docs
     ```
 2. **Environment Configuration** \
-Set up the environment variables by copying the `.env.dist` files to `.env` files in the respective directories (`frontend`, `backend`, and 
+   Set up the environment variables by copying the `.env.dist` files to `.env` files in the respective directories (`frontend`, `backend`, and
    `postgres`) and changing them.
 3. **Build and Run Docker Containers**
     ```bash
     docker-compose up -d --build
     ```
 4. **Initial Database Setup** \
-After starting the containers, access the backend container and run the following commands:
+   After starting the containers, access the backend container and run the following commands:
     ```bash
     docker exec -it backend_container_name bash
-    python manage.py makemigrations
+    python manage.py makemigrations <apps>
     python manage.py migrate
     ```
 5. **Update Site Configuration**
-Update the `django_site` table in the database to reflect your domain:
+   Update the `django_site` table in the database to reflect your domain:
     ```postgresql
     UPDATE django_site SET domain='your-domain', name='human-readable name' WHERE id=1;
     ```
 
 ### Features
 1. **Product Reservation** \
-When an order is created, the products are reserved.
-If the order is not completed within one hour, the reservation expires, and the products are made available again.
+   When an order is created, the products are reserved.
+   If the order is not completed within one hour, the reservation expires, and the products are made available again.
 
 2. **Payment and Download Links** \
-Upon order creation, users are redirected to the payment site. After successful payment, download links are sent to the provided email.
+   Upon order creation, users are redirected to the payment site. After successful payment, download links are sent to the provided email.
 
 3. **Currency Exchange** \
-To update the currency exchange rates, press the corresponding button in the Django admin panel.
+   To update the currency exchange rates, press the corresponding button in the Django admin panel.
 
 ## Technology Stack
 

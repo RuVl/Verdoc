@@ -27,10 +27,13 @@ services:
       - backend
 
   postgres:
-    image: postgres:16.2
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
       - postgres_volume:/var/lib/postgresql/data
+      - ./postgres/backups:/var/backups/postgres
     env_file: postgres/.env
     expose:
       - 5432
@@ -38,7 +41,7 @@ services:
       - verdoc
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 3
 

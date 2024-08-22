@@ -1,0 +1,1 @@
+5 0 * * * python3 /usr/src/app/manage.py expire_transactions >> /var/log/cron.log 2>&1

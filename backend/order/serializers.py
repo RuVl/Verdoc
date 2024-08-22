@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db.transaction import atomic
 from djmoney.contrib.exchange.models import convert_money
 from rest_framework import serializers
 
@@ -53,19 +53,19 @@ class OrderSerializer(serializers.ModelSerializer):
         data['total_price'] = total_price  # Добавление total_price в data
         return data
 
+    @atomic
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         total_price = validated_data.pop('total_price')
 
-        with transaction.atomic():
-            # Create order and reserve it
-            order = Order.objects.create(total_price=total_price, **validated_data)
+        # Create order and reserve it
+        order = Order.objects.create(total_price=total_price, **validated_data)
 
-            # Create and reserve order_items
-            for item_data in items_data:
-                OrderItem.objects.create(order=order, **item_data).reserve()
+        # Create and reserve order_items
+        for item_data in items_data:
+            OrderItem.objects.create(order=order, **item_data).reserve()
 
-            return order
+        return order
 
 
 class SendDownloadLinksSerializer(serializers.Serializer):

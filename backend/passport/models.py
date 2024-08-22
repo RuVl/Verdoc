@@ -1,6 +1,7 @@
 import logging
 
 from django.db import models, transaction
+from django.db.transaction import atomic
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 
@@ -39,7 +40,7 @@ class Passport(models.Model):
 
     name = models.CharField(max_length=255)
     price = MoneyField(max_digits=10, decimal_places=2, default_currency='USD')
-    quantity = models.PositiveIntegerField(default=0, editable=False)
+    quantity = models.PositiveIntegerField(default=0, editable=False, verbose_name='In stock')
 
     country = models.ForeignKey(Country, related_name='passports', on_delete=models.CASCADE)
 
@@ -88,6 +89,7 @@ class Passport(models.Model):
 
         return files
 
+    @atomic
     def sell(self, count) -> list['PassportFile']:
         """ Sell reserved passport files """
 
@@ -97,8 +99,7 @@ class Passport(models.Model):
         for file in files:
             file.status = PassportFile.PassportFileStatus.SOLD
 
-        with transaction.atomic():
-            PassportFile.objects.bulk_update(files, ['status'])
+        PassportFile.objects.bulk_update(files, ['status'])
 
         return files
 

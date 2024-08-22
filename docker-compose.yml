@@ -1,9 +1,9 @@
 volumes:
-  postgres_volume:  # Volume for database
+  postgres_volume: # Volume for database
     driver: local
-  products_volume:  # Volume for product files
+  products_volume: # Volume for product files
     driver: local
-  static_volume:  # Volume with django static for serving by nginx
+  static_volume: # Volume with django static for serving by nginx
     driver: local
 
 networks:

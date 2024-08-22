@@ -15,14 +15,14 @@ export default class Passport extends TranslatableModel {
 
 	static fromApi(passport, country) {
 		const data = {
-			id: passport.id,
+			id: parseInt(passport.id),
 			code: country.code,
 			price: {
-				amount: passport.price,
+				amount: parseFloat(passport.price),
 				currency: passport.price_currency
 			},
 			_quantity: 1, // default quantity to buy
-			max_quantity: passport.quantity,
+			max_quantity: parseInt(passport.quantity),
 		};
 
 		return new Passport(assign(passport, data));

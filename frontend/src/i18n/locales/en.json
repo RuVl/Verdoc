@@ -24,7 +24,7 @@
 	},
 	"navigation": {
 		"contacts": "@:routes.contacts",
-		"how_it_works": "How it works",
+		"how_it_works": "Store rules",
 		"my_purchases": "@:routes.my_purchases"
 	},
 	"products": {
@@ -45,7 +45,7 @@
 	"routes": {
 		"cart": "Cart",
 		"contacts": "Contacts",
-		"info": "Information",
+		"info": "Rules of the verif-docs.com",
 		"main": "Main",
 		"my_purchases": "My purchases",
 		"support": "Support"
@@ -53,6 +53,32 @@
 	"site_info": {
 		"description": "The largest website selling photos of documents that will help you pass verification",
 		"logo_description": "Verification documents",
+		"rules": {
+			"1": {
+				"text": "1. The warranty from the store applies to all products that we sell and is valid for 24 hours after purchase.\n2. After the expiration of the warranty period, no purchase claims will be accepted.\n3. If you have any questions or problems with the product, be sure to contact us within the warranty period.\nWe will try to help you! (The warranty period is extended if you make a purchase outside the store's support hours) From Sunday to Monday.\n4. No refunds will be given.",
+				"title": "1. Important information on warranty and customer service"
+			},
+			"2": {
+				"text": "1. By making a purchase in our store, the user agrees to the rules specified in this section.\n2. We do not support, encourage or promote the illegal use of our products for counterfeiting, fraud or any illegal activities.\n3. Any resources or people not listed on our site are unrelated to us and may be scammers.\n4. We do not sell our goods on loan.\n5. If you have made an advance payment for the product, but then changed your mind, the funds will not be refunded.\n6. In case of violation of any rules of use of the service, the administration has the right to block the user without the right to support and\nthe possibility of a refund.\n7. In case of uncultured behavior, deception or an attempt to deceive on the part of the user, the administration has the right to block the user.\n8. Our site offers a wide selection of images created for informational purposes only.",
+				"title": "2. General rules of the store"
+			},
+			"3": {
+				"text": "1. In case of transfer of an amount less than or more than the specified amount, the user is recommended to contact the store's support.\n2. The store administration is not responsible for funds sent using incorrect banking details.\n3. The administration has the right to refuse to sell the product.\n4. The administration is not responsible for any blocking of the buyer's payment details after the transaction(s).",
+				"title": "3. Purchase of the product"
+			},
+			"4": {
+				"text": "1. After payment, the user should receive the product, which on successful payment is issued by sending the product to the specified email. (Check your spam folder)\n2. The user is recommended to check the product immediately after purchase.\n3. The goods are issued in \"one hand\", the administration is not responsible for the transfer of the goods to 3 persons.",
+				"title": "4. Receiving the goods"
+			},
+			"5": {
+				"text": "1. Replacement of goods is done once, i.e. there is no replacement of already replaced goods.\n2. To replace an item, you must provide video proof that the image has already been used in five services or more.\n3. The time for replacement is 24 hours from the date of purchase. \n4. If you are looking for an image with specific criteria, please contact our support team for personalized assistance.",
+				"title": "5. Replacement of goods"
+			},
+			"6": {
+				"text": "1. Write using the \"Store support\" button. For the most productive and quick solution to your problem, send the following information immediately:\nThe order number, the description of the problem and your email address specified at the time of purchase.",
+				"title": "6. In case there are problems with the product"
+			}
+		},
 		"title": {
 			"first": "Documents from various countries for",
 			"second": "passing verification"

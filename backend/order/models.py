@@ -2,7 +2,8 @@ import uuid
 
 from django.conf import settings
 from django.contrib.sites.models import Site
-from django.db import models, transaction
+from django.db import models
+from django.db.transaction import atomic
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
@@ -36,10 +37,17 @@ class Order(models.Model):
     def __str__(self):
         return f'Order {self.id} - {self.user_email}'
 
+    def is_expired(self):
+        now = timezone.now()
+        from_created = timezone.timedelta(hours=1, minutes=10)  # From creation
+        from_updated = timezone.timedelta(hours=1)  # From last update
+
+        return now > self.created_at + from_created or now > self.updated_at + from_updated
+
+    @atomic
     def reset_reservation(self):
-        with transaction.atomic():
-            for order_item in self.items.all():
-                order_item.reset_reservation()
+        for order_item in self.items.all():
+            order_item.reset_reservation()
 
     def sell(self) -> list['DownloadLink']:
         download_links = []
@@ -67,39 +75,37 @@ class OrderItem(models.Model):
     def __str__(self):
         return f'{self.quantity} x {self.passport.name if self.passport else 'NULL'}'
 
+    @atomic
     def reserve(self):
         if self.is_reserved:
             raise ValueError('Order item cannot be reserved twice.')
 
         self.is_reserved = True
+        self.passport.reserve(self.quantity)
+        self.save()
 
-        with transaction.atomic():
-            self.passport.reserve(self.quantity)
-            self.save()
-
+    @atomic
     def reset_reservation(self):
         if not self.is_reserved:
             raise ValueError('Cannot reset unreserved order item.')
 
         self.is_reserved = False
+        self.passport.return2stock(self.quantity)
+        self.save()
 
-        with transaction.atomic():
-            self.passport.return2stock(self.quantity)
-            self.save()
-
+    @atomic
     def sell(self) -> list['DownloadLink']:
         if not self.is_reserved:
             raise ValueError('Cannot sell unreserved order item.')
 
         self.is_reserved = False
 
-        with transaction.atomic():
-            passport_files = self.passport.sell(self.quantity)
-            download_links = [
-                DownloadLink.objects.create(order_item=self, file_path=passport_file)
-                for passport_file in passport_files
-            ]
-            self.save()
+        passport_files = self.passport.sell(self.quantity)
+        download_links = [
+            DownloadLink.objects.create(order_item=self, file_path=passport_file)
+            for passport_file in passport_files
+        ]
+        self.save()
 
         return download_links
 

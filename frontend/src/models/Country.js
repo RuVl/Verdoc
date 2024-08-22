@@ -13,7 +13,7 @@ export default class Country extends TranslatableModel {
 
 	static fromApi(country) {
 		const data = {
-			id: country.id,
+			id: parseInt(country.id),
 			code: country.code,
 			passports: country.passports.map(passport => Passport.fromApi(passport, country)),
 		};

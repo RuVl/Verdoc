@@ -30,11 +30,16 @@ with nginx handling proxying and serving in Docker containers.
     python manage.py makemigrations <apps>
     python manage.py migrate
     ```
-5. **Update Site Configuration**
+5. **Update Site Configuration** \
    Update the `django_site` table in the database to reflect your domain:
     ```postgresql
     UPDATE django_site SET domain='your-domain', name='human-readable name' WHERE id=1;
     ```
+6. **Create exchange rates** \
+   Get all rates by command:
+   ```bash
+   python manage.py update_rates
+   ```
 
 ### Features
 1. **Product Reservation** \

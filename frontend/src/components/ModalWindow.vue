@@ -5,17 +5,19 @@ const is_opened = defineModel('is_opened', {default: true});
 </script>
 
 <template>
-<teleport to="#app">
-  <div class="modal-window-wrapper" v-if="is_opened">
-    <div class="modal-window">
-      <div class="close-icon-container" @click="is_opened=false">
-        <CrossIcon class="close-icon"/>
+  <teleport to="#app">
+    <div class="modal-window-wrapper" v-if="is_opened">
+      <div class="modal-window">
+        <div class="close-icon-container" @click="is_opened=false">
+          <CrossIcon class="close-icon"/>
+        </div>
+        <h2 class="title">
+          <slot name="title"/>
+        </h2>
+        <slot/>
       </div>
-      <h2 class="title"><slot name="title"/></h2>
-      <slot/>
     </div>
-  </div>
-</teleport>
+  </teleport>
 </template>
 
 <style scoped lang="scss">

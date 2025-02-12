@@ -6,7 +6,7 @@ import SiteNav from "@/components/SiteNav.vue";
   <header>
     <SiteNav extended/>
   </header>
-  <main class="main-view">
+  <main>
     <router-view/>
   </main>
   <footer>
@@ -15,15 +15,11 @@ import SiteNav from "@/components/SiteNav.vue";
 </template>
 
 <style scoped>
-.main-view {
-  min-height: calc(100vh - ((50px + var(--navigation-margin) * 2)* 2 + var(--main-margin)));
-  margin-top: var(--main-margin);
+main {
   box-sizing: content-box;
 }
 
-@media only screen and (max-width: 768px) {
-  .main-view {
-    margin-top: 0;
-  }
+footer {
+  margin-top: auto;
 }
 </style>

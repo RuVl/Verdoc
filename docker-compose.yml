@@ -41,7 +41,7 @@ services:
       - verdoc
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER
-      interval: 30s
+      interval: 15s
       timeout: 5s
       retries: 3
 

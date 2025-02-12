@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.sites.models import Site
@@ -39,8 +40,8 @@ class Order(models.Model):
 
     def is_expired(self):
         now = timezone.now()
-        from_created = timezone.timedelta(hours=1, minutes=10)  # From creation
-        from_updated = timezone.timedelta(hours=1)  # From last update
+        from_created = timedelta(hours=1, minutes=10)  # From creation
+        from_updated = timedelta(hours=1)  # From last update
 
         return now > self.created_at + from_created or now > self.updated_at + from_updated
 
@@ -102,7 +103,7 @@ class OrderItem(models.Model):
 
         passport_files = self.passport.sell(self.quantity)
         download_links = [
-            DownloadLink.objects.create(order_item=self, file_path=passport_file)
+            DownloadLink.objects.create(order_item=self, passport_file=passport_file)
             for passport_file in passport_files
         ]
         self.save()
@@ -130,7 +131,7 @@ class DownloadLink(models.Model):
 
     def is_expired(self):
         """ Checks if the link has expired. Links are valid for 24 hours. """
-        return timezone.now() > self.updated_at + timezone.timedelta(hours=24)
+        return timezone.now() > self.updated_at + timedelta(hours=24)
 
     def update_link(self):
         self.uuid = uuid.uuid4()

@@ -6,8 +6,15 @@ html, body {
 }
 
 #app {
+	display: flex;
+	flex-direction: column;
+	flex-wrap: nowrap;
+
+	position: relative;
+
 	padding: 0 15px;
 	max-width: 1200px;
+	min-height: 100vh;
 	margin: 0 auto;
 
 	font-family: 'Montserrat', sans-serif;

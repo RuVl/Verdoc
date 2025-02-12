@@ -4,6 +4,7 @@
 		"buy": "Buy",
 		"buy_now": "Buy now",
 		"cart": "@:routes.cart",
+		"go_back_home": "Go back home",
 		"payment_method": "Choose a payment method",
 		"send_links": "Send links",
 		"support": "Store support",
@@ -26,6 +27,9 @@
 		"contacts": "@:routes.contacts",
 		"how_it_works": "Store rules",
 		"my_purchases": "@:routes.my_purchases"
+	},
+	"other": {
+		"page_not_found": "We couldn’t find the page you were looking for. It may have been moved, or it just doesn’t exist."
 	},
 	"products": {
 		"count": "pc.",

@@ -4,6 +4,7 @@
 		"buy": "Купить",
 		"buy_now": "Купить сейчас",
 		"cart": "@:routes.cart",
+		"go_back_home": "Вернуться на главную",
 		"payment_method": "Выбрать способ оплаты",
 		"send_links": "Отправить ссылки",
 		"support": "Поддержка магазина",
@@ -26,6 +27,9 @@
 		"contacts": "@:routes.contacts",
 		"how_it_works": "Правила магазина",
 		"my_purchases": "@:routes.my_purchases"
+	},
+	"other": {
+		"page_not_found": "Мы не смогли найти страницу, которую вы искали. Возможно, она была перемещена или просто не существует."
 	},
 	"products": {
 		"count": "шт.",

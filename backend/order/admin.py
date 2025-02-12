@@ -90,7 +90,7 @@ class DownloadLinkAdmin(admin.ModelAdmin):
     readonly_fields = ('order_item', 'passport_file', 'link')
     exclude = ('uuid',)
     list_filter = ('order_item__order',)
-    search_fields = ('order_item__order__user_email', 'passport_file__name')
+    search_fields = ('order_item__order__user_email', 'passport_file__passport__name')
     actions = None  # Disable any actions
 
     @admin.display(boolean=True, description='Valid')

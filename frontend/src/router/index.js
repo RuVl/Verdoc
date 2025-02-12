@@ -1,5 +1,8 @@
 import {createRouter, createWebHistory} from 'vue-router';
+import {useSettingsStore} from "@/stores/settings.js";
+import {SUPPORT_LOCALES} from "@/i18n/index.js";
 
+// parent in meta - for navbar upside the block (PathNav.vue in ViewBlock.vue)
 const routes = [
 	{
 		name: 'main',
@@ -37,11 +40,24 @@ const routes = [
 		component: () => import("@/views/Support.vue"),
 		meta: {parent: 'main', name: 'routes.support'}
 	},
+	{
+		path: '/:pathMatch(.*)*',
+		component: () => import("@/views/PageNotFound.vue")
+	}
 ];
 
 const router = createRouter({
 	history: createWebHistory(),
-	routes,
+	routes: routes,
+});
+
+router.beforeEach(async (to, from, next) => {
+	const lang = to.query.lang;
+	if (lang && SUPPORT_LOCALES.includes(lang)) {
+		const settingsStore = useSettingsStore();
+		await settingsStore.setLanguage(lang);
+	}
+	next();
 });
 
 export default router;

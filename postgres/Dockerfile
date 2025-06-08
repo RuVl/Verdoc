@@ -10,6 +10,10 @@ RUN touch /var/log/cron.log
 COPY backup.sh /usr/local/bin/backup_postgres.sh
 RUN chmod +x /usr/local/bin/backup_postgres.sh
 
+# Replace \n\r to \n and do backup now
+RUN sed -i 's/\r$//' /usr/local/bin/backup_postgres.sh
+RUN bash /usr/local/bin/backup_postgres.sh
+
 # Copy the cronjob and apply it
 COPY cronjob /etc/cron.d/backup-cron
 RUN crontab /etc/cron.d/backup-cron

@@ -9,7 +9,7 @@ import logo_icon from '@/assets/logo_icon.png';
       <div class="circle"></div>
     </div>
     <div class="site-info">
-      <span class="name">Verif-<span style="color: var(--accent-color)">docs</span></span>
+      <span class="name"><span style="color: #3ab02a">Verif</span>-docs</span>
       <br>
       <span class="description">{{ $t('site_info.logo_description') }}</span>
     </div>
@@ -26,7 +26,7 @@ import logo_icon from '@/assets/logo_icon.png';
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 25px;
+  gap: 10px;
   width: fit-content;
   text-decoration: none;
 
@@ -40,10 +40,10 @@ import logo_icon from '@/assets/logo_icon.png';
 }
 
 .logo-icon {
-  --size: 44px;
+  --size: 48px;
 
   position: relative;
-  height: calc(var(--size) + 4px);
+  height: var(--size);
   width: var(--size);
 
   > img {
@@ -56,7 +56,7 @@ import logo_icon from '@/assets/logo_icon.png';
     position: absolute;
     bottom: 0;
     z-index: -1;
-    background-color: var(--accent-color);
+    //background-color: var(--accent-color);
 
     width: var(--size);
     height: var(--size);

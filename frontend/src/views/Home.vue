@@ -110,7 +110,7 @@ function add2cart(passport) {
   box-sizing: border-box;
   border: none;
   padding: 50px 65px;
-  background: linear-gradient(90deg, #ffffff, transparent) no-repeat right, url("@/assets/banner_background.jpg") no-repeat center right -1px;
+  background: linear-gradient(90deg, #ffffff, transparent) no-repeat right, url("@/assets/banner_background.jpg") no-repeat center right -10px;
   background-size: min(100%, var(--banner-image-width)) 100%, auto 100%;
 
   & > h2 {

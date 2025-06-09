@@ -66,6 +66,7 @@ import logo_icon from '@/assets/logo_icon.png';
 
 .site-info {
   text-wrap: nowrap;
+  color: #000000;
 
   > .name {
     font-size: 20px;

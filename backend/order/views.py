@@ -221,7 +221,6 @@ class SendDownloadLinksView(APIView):
             if len(item_links) < order_item.quantity:
                 raise ValueError(f'Not enough download links for order item {order_item.id}')
 
-        #
         for item_link in item_links:
             item_link.update_link()
 

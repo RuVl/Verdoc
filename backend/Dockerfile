@@ -32,5 +32,5 @@ COPY cronjob /etc/cron.d/expire-orders-cron
 RUN crontab /etc/cron.d/expire-orders-cron
 RUN nohup service cron start &
 
-# Run gunicron
-ENTRYPOINT gunicorn -c gunicorn.py --access-logfile - --error-logfile - backend.wsgi:application
+# Run gunicorn
+ENTRYPOINT ["gunicorn", "-c", "gunicorn.py", "backend.wsgi:application"]

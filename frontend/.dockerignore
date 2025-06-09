@@ -1,0 +1,7 @@
+.vscode/
+.idea/
+
+node_modules/
+
+README.md
+Dockerfile.dev

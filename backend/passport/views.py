@@ -14,9 +14,7 @@ class CountryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CountrySerializer
 
     def get_queryset(self):
-        return Country.objects.annotate(
-            num_passports=Count('passports', filter=Q(passports__quantity__gt=0))
-        ).filter(num_passports__gt=0)
+        return Country.objects.filter(passports__quantity__gt=0).distinct()
 
     def list(self, request, *args, **kwargs):
         language = request.GET.get('lang')

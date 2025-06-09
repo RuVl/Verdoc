@@ -53,6 +53,7 @@ services:
     volumes:
       - products_volume:/usr/src/app/products
       - static_volume:/usr/src/app/static
+      - ./backend/logs:/usr/src/app/logs
     env_file:
       - backend/.env
       - postgres/.env  # For db connection

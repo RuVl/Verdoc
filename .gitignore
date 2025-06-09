@@ -1,0 +1,20 @@
+# IDE folder
+.idea/
+
+# Design folder
+design/
+
+# Virtual enviroment
+venv
+node_modules
+
+# Enviroment variables
+**/.env
+
+# Logging files
+*.log
+
+# Test docker-compose
+test*.yml
+
+todo.txt

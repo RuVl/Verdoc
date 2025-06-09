@@ -1,0 +1,6 @@
+Dockerfile
+
+venv/
+
+.env.dist
+.env

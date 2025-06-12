@@ -18,7 +18,7 @@ for (let route = router.currentRoute.value; ; route = router.resolve({name: rout
   </nav>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .path-nav {
   font-size: 12px;
   color: var(--second-color-text);

@@ -1,5 +1,5 @@
 <script setup>
-import {ref, onMounted} from "vue";
+import {onMounted, ref} from "vue";
 import CountryFlag from 'vue-country-flag-next';
 import CommonButton from "@/components/CommonButton.vue";
 import CurrencySwitch from "@/components/CurrencySwitch.vue";
@@ -19,7 +19,9 @@ const countries = ref([]);
 async function fetchCountries() {
   try {
     const response = await apiClient.get('/countries/');
-    countries.value = response.data.map(countryData => Country.fromApi(countryData));
+    countries.value = response.data
+        .map(countryData => Country.fromApi(countryData))
+        .sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     console.error('Error fetching countries:', error);
   }
@@ -61,11 +63,11 @@ function add2cart(passport) {
     <hr>
     <ProductsList v-for="country in countries" :key="country.id" :elements="country.passports">
       <template #title>
-        <CountryFlag class="flag-icon" :country="country.code" size="big"/>
+        <CountryFlag :country="country.code" class="flag-icon" size="big"/>
         <span>{{ country.name }}</span>
       </template>
       <template #default="{element: passport}">
-        <CountryFlag class="flag-icon item" :country="country.code"/>
+        <CountryFlag :country="country.code" class="flag-icon item"/>
         <span class="product-name">{{ passport.name }}</span>
         <CounterShow class="counter">{{ passport.max_quantity }} {{ $t('products.count') }}</CounterShow>
         <CounterShow class="counter">{{ passport.formattedPrice() }}</CounterShow>
@@ -86,11 +88,11 @@ function add2cart(passport) {
       <template #default>
         <div class="instant-buy-dialog">
           <span class="product-name">{{ selectedPassport.name }}</span>
-          <CounterChanger class="quantity-counter" v-model:item="selectedPassport" counter_name="quantity"/>
+          <CounterChanger v-model:item="selectedPassport" class="quantity-counter" counter_name="quantity"/>
           {{ $t('products.modal_window.total_amount') }}
           <span class="total-cost">{{ selectedPassport.formattedPrice(true) }}</span>
           <div class="buttons-block">
-            <button class="add2cart-btn" @click="add2cart(selectedPassport)" type="button">
+            <button class="add2cart-btn" type="button" @click="add2cart(selectedPassport)">
               <CartIcon size="small"/>
               {{ $t('buttons.add2cart') }}
             </button>
@@ -103,7 +105,7 @@ function add2cart(passport) {
   </Block>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .site-info {
   min-height: 284px;
   position: relative;

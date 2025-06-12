@@ -37,24 +37,24 @@ function buy() {
     <template #default>
       <form class="payment-form" @submit.prevent="buy">
         {{ $t('cart_view.modal_window.email.ask') }}
-        <pretty-input name="user_email" v-model="payment_form.email" type="email" :placeholder="$t('cart_view.modal_window.email.placeholder')"/>
+        <pretty-input v-model="payment_form.email" :placeholder="$t('cart_view.modal_window.email.placeholder')" name="user_email" type="email"/>
         {{ $t('cart_view.modal_window.choose_method') }}
         <CustomSelect v-model:selected="payment_form.method" :elements="orderStore.payment_methods" class="payment-method">
           <template #default="{element: method}">
-            <img class="option-icon" :src="method.icon"/>
+            <img :src="method.icon" class="option-icon"/>
             <span class="option-text">{{ method.name }}</span>
           </template>
           <template #hidden-input="{element: method}">
-            <input type="hidden" name="payment-method" :value="method.name">
+            <input :value="method.name" name="payment-method" type="hidden">
           </template>
         </CustomSelect>
-        <CommonButton type="submit" class="submit-btn">{{ $t('buttons.payment_method') }}</CommonButton>
+        <CommonButton class="submit-btn" type="submit">{{ $t('buttons.payment_method') }}</CommonButton>
       </form>
     </template>
   </ModalWindow>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .payment-form {
   display: flex;
   gap: 15px;

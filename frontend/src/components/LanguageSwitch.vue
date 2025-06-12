@@ -9,13 +9,15 @@ const languagesStore = useLanguagesStore();
 
 function setLanguage(language) {
   languagesStore.setLanguage(language).then(
-      () => {isActive.value = false}
+      () => {
+        isActive.value = false
+      }
   );
 }
 </script>
 
 <template>
-  <div tabindex="0" class="lang-switch" :class="{ active: isActive }" @blur="isActive = false" @keydown.enter="isActive = !isActive">
+  <div :class="{ active: isActive }" class="lang-switch" tabindex="0" @blur="isActive = false" @keydown.enter="isActive = !isActive">
     <div class="selected-flag" @click="isActive = !isActive">
       <CountryFlag :country="languagesStore.currentLanguage.flag" class="flag-icon"/>
       <DropdownIcon class="dropdown-icon"/>

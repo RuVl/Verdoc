@@ -1,10 +1,10 @@
 <template>
-<div class="block">
-  <slot/>
-</div>
+  <div class="block">
+    <slot/>
+  </div>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .block {
   background: #ffffff;
   border-radius: 40px;

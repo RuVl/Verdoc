@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y cron
 RUN touch /var/log/cron.log
 
 # Prepare project directory
-CMD mkdir -p /usr/src/app/
+RUN mkdir -p /usr/src/app/
 WORKDIR /usr/src/app/
 
 # Copy and install requirements
@@ -24,13 +24,10 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy project to directory
 COPY . ./
 
-# Collect django's static files
-CMD python3 manage.py collectstatic --no-input
-
-# Copy the cronjob, apply it, and run cron
+# Copy the cronjob, apply it
 COPY cronjob /etc/cron.d/expire-orders-cron
 RUN crontab /etc/cron.d/expire-orders-cron
-RUN nohup service cron start &
 
 # Run gunicorn
-ENTRYPOINT ["gunicorn", "-c", "gunicorn.py", "backend.wsgi:application"]
+RUN chmod +x ./startup.sh
+ENTRYPOINT ["./startup.sh", "gunicorn", "-c", "gunicorn.py", "backend.wsgi:application"]

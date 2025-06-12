@@ -86,24 +86,46 @@ SITE_SCHEME = 'https'  # Uses to build absolute url
 LOGGING = {
 	'version': 1,
 	'disable_existing_loggers': False,
+	'formatters': {
+		'standard': {
+			'format': '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s'
+		},
+	},
 	'handlers': {
 		'console': {
 			'class': 'logging.StreamHandler',
+			'formatter': 'standard',
 		},
+		'file': {
+			'level': 'DEBUG',
+			'class': 'logging.handlers.RotatingFileHandler',
+			'filename': './logs/django.log',
+			'maxBytes': 1024 * 1024 * 10,  # 10 MB
+			'backupCount': 5,
+			'formatter': 'standard',
+		},
+		'null': {
+			'class': 'logging.NullHandler',
+		}
 	},
 	'root': {
-		'handlers': ['console'],
+		'handlers': ['console', 'file'],
 		'level': 'INFO',
 	},
 	'loggers': {
 		'django': {
-			'handlers': ['console'],
+			'handlers': ['console', 'file'],
 			'level': 'INFO',
-			'propagate': True,
+			'propagate': False,
 		},
 		'django.request': {
-			'handlers': ['console'],
+			'handlers': ['console', 'file'],
 			'level': 'INFO',
+			'propagate': False,
+		},
+		'django.security.DisallowedHost': {
+			'handlers': ['null'],
+			'level': 'ERROR',
 			'propagate': False,
 		},
 	},
@@ -138,7 +160,7 @@ SERIALIZATION_MODULES = {
 # Internationalization
 USE_I18N = True
 USE_L10N = True
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'en'
 LANGUAGES = (
 	('en', 'English'),
 	('ru', 'Russian')

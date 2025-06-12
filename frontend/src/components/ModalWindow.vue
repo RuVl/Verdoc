@@ -6,7 +6,7 @@ const is_opened = defineModel('is_opened', {default: true});
 
 <template>
   <teleport to="#app">
-    <div class="modal-window-wrapper" v-if="is_opened">
+    <div v-if="is_opened" class="modal-window-wrapper">
       <div class="modal-window">
         <div class="close-icon-container" @click="is_opened=false">
           <CrossIcon class="close-icon"/>
@@ -20,7 +20,7 @@ const is_opened = defineModel('is_opened', {default: true});
   </teleport>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .modal-window-wrapper {
   position: fixed;
   top: 0;

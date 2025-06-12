@@ -42,5 +42,5 @@ export async function loadLocaleMessages(locale) {
 }
 
 export function getI18n() {
-  return i18n;
+	return i18n;
 }

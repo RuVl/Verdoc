@@ -11,13 +11,13 @@ defineProps({
     <span v-if="$slots.title" class="title"><slot name="title"/></span>
     <ul v-if="elements">
       <li v-for="(element, index) in elements">
-        <slot :element="element" :index="index" />
+        <slot :element="element" :index="index"/>
       </li>
     </ul>
   </div>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .products-list {
   & > .title {
     margin: 30px 0 15px 0;
@@ -58,7 +58,7 @@ defineProps({
     .title {
       justify-content: center;
     }
-    
+
     > ul {
       > li {
         flex-wrap: wrap;
@@ -68,9 +68,9 @@ defineProps({
   }
 }
 
-@media screen and (max-width: 480px){
-.products-list > ul > li {
-  gap: 10px 5px;
-}
+@media screen and (max-width: 480px) {
+  .products-list > ul > li {
+    gap: 10px 5px;
+  }
 }
 </style>

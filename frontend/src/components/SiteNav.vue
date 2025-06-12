@@ -1,5 +1,5 @@
 <script setup>
-import {ref, computed} from 'vue';
+import {computed, ref} from 'vue';
 import {useI18n} from 'vue-i18n';
 import Logo from "@/components/Logo.vue";
 import LanguageSwitch from "@/components/LanguageSwitch.vue";
@@ -23,13 +23,13 @@ const is_active = ref(false);
 </script>
 
 <template>
-  <div class="navigation-wrapper" :class="{extended: extended}">
+  <div :class="{extended: extended}" class="navigation-wrapper">
     <div class="logo-wrapper">
       <Logo/>
     </div>
     <LanguageSwitch v-if="extended" class="lang-switch"/>
     <HamburgerIcon v-if="extended" v-model:is_active="is_active" class="burger-btn" tabindex="0"/>
-    <nav class="navbar" :class="{active: is_active}">
+    <nav :class="{active: is_active}" class="navbar">
       <router-link v-for="link in links" :to="{name: link.path_name}" class="nav-link" @click="is_active=false">
         {{ link.name }}
       </router-link>

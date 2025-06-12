@@ -20,7 +20,7 @@ const selectElement = (index) => {
   <div class="dropdown">
     <div class="dropdown-toggle" @click="is_opened=!is_opened">
       <slot :element="elements[selected_index]" name="default"/>
-      <DropdownIcon class="caret" :class="{ active: is_opened }"/>
+      <DropdownIcon :class="{ active: is_opened }" class="caret"/>
     </div>
     <ul v-if="is_opened" class="dropdown-menu">
       <li v-for="(element, index) in elements" :key="element.name" @click="selectElement(index)">
@@ -28,12 +28,12 @@ const selectElement = (index) => {
       </li>
     </ul>
     <slot :element="elements[selected_index]" name="hidden-input">
-      <input type="hidden" :name="name" :value="elements[selected_index]">
+      <input :name="name" :value="elements[selected_index]" type="hidden">
     </slot>
   </div>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .dropdown {
   position: relative;
   user-select: none;
@@ -86,7 +86,7 @@ const selectElement = (index) => {
 
       &:hover {
         opacity: .7;
-        background-color: rgba(0,0,0,.025);
+        background-color: rgba(0, 0, 0, .025);
       }
 
       &:first-child {

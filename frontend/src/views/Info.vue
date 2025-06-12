@@ -26,7 +26,7 @@ import ViewBlock from "@/components/ViewBlock.vue";
   </ViewBlock>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .info-block {
   p:not(:last-child) {
     margin-bottom: 20px;

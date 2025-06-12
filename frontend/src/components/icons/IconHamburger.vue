@@ -3,14 +3,14 @@ const is_active = defineModel('is_active', {type: Boolean, default: false});
 </script>
 
 <template>
-  <svg xmlns="http://www.w3.org/2000/svg" :class="{active: is_active}" @click="is_active=!is_active" viewbox="0 0 40 20">
+  <svg :class="{active: is_active}" viewbox="0 0 40 20" xmlns="http://www.w3.org/2000/svg" @click="is_active=!is_active">
     <path class="top-line" d="M10,10 L40,10 Z"/>
     <path class="middle-line" d="M10,20 L40,20 Z"/>
     <path class="bottom-line" d="M10,30 L40,30 Z"/>
   </svg>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 svg {
   display: block;
   width: 50px;
@@ -30,9 +30,11 @@ svg.active {
   .top-line {
     animation: down-rotate 0.6s ease-out both;
   }
+
   .bottom-line {
     animation: up-rotate 0.6s ease-out both;
   }
+
   .middle-line {
     animation: hide 0.6s ease-out forwards;
   }

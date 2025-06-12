@@ -14,13 +14,13 @@ const max_count_name = `max_${props.counter_name}`;
 
 <template>
   <div class="counter-changer">
-    <button @click="item[counter_name]--" :disabled="item[counter_name] <= 1" type="button">–</button>
+    <button :disabled="item[counter_name] <= 1" type="button" @click="item[counter_name]--">–</button>
     <CounterShow>{{ item[counter_name] }} {{ $t('products.count') }}</CounterShow>
-    <button @click="item[counter_name]++" :disabled="item[counter_name] >= item[max_count_name]" type="button">+</button>
+    <button :disabled="item[counter_name] >= item[max_count_name]" type="button" @click="item[counter_name]++">+</button>
   </div>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .counter-changer {
   > button {
     user-select: none;

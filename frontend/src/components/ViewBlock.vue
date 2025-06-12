@@ -13,7 +13,7 @@ import PathNav from "@/components/PathNav.vue";
   </Block>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .view-block {
   & > .title {
     margin: 20px 0;

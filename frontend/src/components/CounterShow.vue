@@ -2,7 +2,7 @@
   <span class="counter"><slot/></span>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .counter {
   display: inline-block;
   text-align: center;
@@ -12,7 +12,7 @@
   border-radius: 10px;
 }
 
-@media screen and (max-width: 480px){
+@media screen and (max-width: 480px) {
   .counter {
     min-width: 85px;
     padding: 5px 0;

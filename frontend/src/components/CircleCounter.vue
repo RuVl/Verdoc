@@ -13,7 +13,7 @@ defineProps({
   </div>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .circle-counter {
   width: 21px;
   height: 21px;

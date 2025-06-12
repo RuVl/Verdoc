@@ -3,7 +3,7 @@ import logo_icon from '@/assets/logo_icon.png';
 </script>
 
 <template>
-  <router-link class="logo-link" :to="{name: 'main'}">
+  <router-link :to="{name: 'main'}" class="logo-link">
     <div class="logo-icon">
       <img :src="logo_icon" alt="logo">
       <div class="circle"></div>

@@ -7,6 +7,6 @@ router = DefaultRouter()
 router.register(r'countries', CountryViewSet, basename='countries')
 
 urlpatterns = [
-    path('', include(router.urls)),
-    path('exchange-rates/', ExchangeRatesView.as_view(), name='exchange-rates'),
+	path('', include(router.urls)),
+	path('exchange-rates/', ExchangeRatesView.as_view(), name='exchange-rates'),
 ]

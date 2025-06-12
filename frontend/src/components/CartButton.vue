@@ -9,9 +9,9 @@ const {cartItemCount} = storeToRefs(cartStore);
 </script>
 
 <template>
-  <router-link class="cart-btn-wrapper" :to="{name: 'cart'}">
+  <router-link :to="{name: 'cart'}" class="cart-btn-wrapper">
     <CartIcon size="small"/>
-    <span>{{$t('buttons.cart')}}</span>
+    <span>{{ $t('buttons.cart') }}</span>
     <CircleCounter v-if="cartItemCount > 0" :count="cartItemCount"/>
   </router-link>
 </template>

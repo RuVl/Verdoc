@@ -1,16 +1,19 @@
 # Verdoc
-[Verif-docs](https://verif-docs.com) is a document purchase site built with Vue.js for the frontend and Django REST Framework (DRF) for the 
+
+[Verif-docs](https://verif-docs.com) is a document purchase site built with Vue.js for the frontend and Django REST Framework (DRF) for the
 backend,
 with nginx handling proxying and serving in Docker containers.
 
 ## Getting Started
 
 ### Prerequisites
+
 * Docker and Docker Compose installed on your machine.
 * SSL certificates for HTTPS, placed in `frontend/nginx/ssl` (with `.key` and `.crt` extensions).
 * API tokens for _Plisio_, _OpenExchangeRates_, and _Google Mail_.
 
 ### Setup
+
 1. **Clone the Repository**
     ```bash
     git clone https://github.com/your-username/verif-docs.git
@@ -42,6 +45,7 @@ with nginx handling proxying and serving in Docker containers.
    ```
 
 ### Features
+
 1. **Product Reservation** \
    When an order is created, the products are reserved.
    If the order is not completed within one hour, the reservation expires, and the products are made available again.
@@ -55,6 +59,7 @@ with nginx handling proxying and serving in Docker containers.
 ## Technology Stack
 
 ### Frontend
+
 * `Vue.js` - Core framework
 * `Pinia` - State management
 * `Axios` - HTTP client
@@ -64,6 +69,7 @@ with nginx handling proxying and serving in Docker containers.
 * `Vue Country Flag` - Country flags
 
 ### Backend
+
 * `Django` - Core framework
 * `Django REST Framework (DRF)` - API framework
 * `Django Model Translation` - Model translations
@@ -72,16 +78,20 @@ with nginx handling proxying and serving in Docker containers.
 * `Psycopg` - PostgreSQL adapter
 
 ### Additional Configurations
+
 * SSL Certificates: Required for HTTPS, placed in `frontend/nginx/ssl`.
 * Environment Variables: Ensure `PORT` is set correctly if the backend container does not use port `8000`.
 
 ### Translation and State Management
+
 * `i18n`: Used for translations on both frontend and backend.
 * `Pinia`: Manages state, especially for the cart and user preferences.
 * `Currency Switching`: Allows users to switch currencies seamlessly.
 
 ## Contributing
+
 Feel free to fork the repository and submit pull requests. For major changes, please open an issue first to discuss what you would like to change.
 
 ### License
+
 Distributed under the **GPLv3** License. See LICENSE for more information.

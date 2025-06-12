@@ -9,6 +9,6 @@ import ViewBlock from "@/components/ViewBlock.vue";
   </ViewBlock>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 
 </style>

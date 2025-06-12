@@ -27,8 +27,8 @@ const is_opened = ref(false);
       {{ $t('cart_view.empty') }}
     </div>
     <div v-else>
-      <ListView class="cart-item" :elements="cartItems" v-slot="{element: item, index: i}">
-        <CountryFlag class="flag-icon" :country="item.code"/>
+      <ListView v-slot="{element: item, index: i}" :elements="cartItems" class="cart-item">
+        <CountryFlag :country="item.code" class="flag-icon"/>
         <span class="product-name">{{ item.name }}</span>
         <QuantityChanger v-model:item="cartItems[i]" counter_name="quantity"/>
         <div class="cost-block">
@@ -54,7 +54,7 @@ const is_opened = ref(false);
   </ViewBlock>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
 .cart-view {
   padding-bottom: 25px;
 

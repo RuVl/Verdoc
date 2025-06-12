@@ -13,34 +13,9 @@ export default class Passport extends TranslatableModel {
 		this.max_quantity = data.max_quantity;
 	}
 
-	static fromApi(passport, country) {
-		const data = {
-			id: parseInt(passport.id),
-			code: country.code,
-			price: {
-				amount: parseFloat(passport.price),
-				currency: passport.price_currency
-			},
-			_quantity: 1, // default quantity to buy
-			max_quantity: parseInt(passport.quantity),
-		};
-
-		return new Passport(assign(passport, data));
-	}
-
 	get amount() {
 		const currenciesStore = useCurrenciesStore();
 		return currenciesStore.convert(this.price.amount, this.price.currency);
-	}
-
-	formattedPrice(use_quantity = false) {
-		const currenciesStore = useCurrenciesStore();
-		const price = use_quantity ? this.amount * this._quantity : this.amount;
-		return `${price.toFixed(2)} ${currenciesStore.currentCurrency.sign}`;
-	}
-
-	getTranslationFields() {
-		return ['name'];
 	}
 
 	get quantity() {
@@ -57,5 +32,30 @@ export default class Passport extends TranslatableModel {
 			return;
 		}
 		this._quantity = value;
+	}
+
+	static fromApi(passport, country) {
+		const data = {
+			id: parseInt(passport.id),
+			code: country.code,
+			price: {
+				amount: parseFloat(passport.price),
+				currency: passport.price_currency
+			},
+			_quantity: 1, // default quantity to buy
+			max_quantity: parseInt(passport.quantity),
+		};
+
+		return new Passport(assign(passport, data));
+	}
+
+	formattedPrice(use_quantity = false) {
+		const currenciesStore = useCurrenciesStore();
+		const price = use_quantity ? this.amount * this._quantity : this.amount;
+		return `${price.toFixed(2)} ${currenciesStore.currentCurrency.sign}`;
+	}
+
+	getTranslationFields() {
+		return ['name'];
 	}
 }

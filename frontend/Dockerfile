@@ -10,8 +10,8 @@ CMD mkdir -p /usr/src/app/
 WORKDIR /usr/src/app/
 
 # Copy and install dependencies
-COPY ./package*.json ./
-RUN npm install
+COPY ./package.json ./
+RUN npm install --verbose
 
 # Copy project to directory
 COPY . ./

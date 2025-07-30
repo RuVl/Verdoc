@@ -1,14 +1,19 @@
 volumes:
   postgres_volume: # Volume for database
-    driver: local
+    name: verdoc_postgres
   products_volume: # Volume for product files
-    driver: local
+    name: verdoc_products
   static_volume: # Volume with django static for serving by nginx
-    driver: local
+    name: verdoc_static
 
 networks:
   verdoc:
     driver: bridge
+    name: verdoc
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16 # for postfix and opendkim trust
+          gateway: 172.18.0.1
 
 services:
   frontend-nginx:
@@ -61,6 +66,8 @@ services:
       - 8000
     networks:
       - verdoc
+    extra_hosts:
+      host.docker.internal: host-gateway
     depends_on:
       postgres:
         condition: service_healthy

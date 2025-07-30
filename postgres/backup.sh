@@ -15,5 +15,5 @@ mkdir -p $BACKUP_DIR
 pg_dump -U "$POSTGRES_USER" -h "$DOCKER_POSTGRES_HOST" -F c "$POSTGRES_DB" > "$BACKUP_DIR/$FILENAME" &&
 echo Backup done at $DATE
 
-# Deleting old backups (older than 7 days)
-find $BACKUP_DIR -type f -name "*.dump" -mtime +7 -exec rm {} \;
+# Deleting old backups (older than 30 days)
+find $BACKUP_DIR -type f -name "*.dump" -mtime +30 -exec rm {} \;

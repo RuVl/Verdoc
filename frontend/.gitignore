@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# node js
 node_modules
 package-lock.json
 
@@ -19,7 +20,6 @@ coverage
 # Additional
 .eslintrc.cjs
 .prettierrc.json
-README.md
 
 # Editor directories and files
 .vscode

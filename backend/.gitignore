@@ -1,5 +1,8 @@
 # Enviroment
-*.env
+.env
+dev.env
+
+# virtual enviroment
 venv
 
 # Compiled files

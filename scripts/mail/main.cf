@@ -1,0 +1,28 @@
+myhostname = mail.verif-docs.com
+myorigin = verif-docs.com
+
+# Указываем, что не принимаем никакие письма
+mydestination = localhost
+
+# Не используем сторонний релей
+relayhost =
+
+inet_interfaces = all
+
+# IPv4 и IPv6
+inet_protocols = all
+mynetworks = 127.0.0.0/8 172.18.0.0/16
+
+# TLS
+smtp_tls_security_level = may
+smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+
+# DKIM
+milter_default_action = accept
+milter_protocol = 6
+smtpd_milters = inet:localhost:8891
+non_smtpd_milters = inet:localhost:8891
+
+# Перессылка
+smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination

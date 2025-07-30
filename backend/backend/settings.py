@@ -186,7 +186,9 @@ OPEN_EXCHANGE_RATES_APP_ID = env('OPENEXCHANGERATES_APP_ID')
 PLISIO_SECRET_KEY = env('PLISIO_SECRET_KEY')
 
 # Email config
-EMAIL_CONFIG = env.email()
+EMAIL_CONFIG = env.email(
+	backend='django.core.mail.backends.smtp.EmailBackend'
+)
 
 EMAIL_HOST_USER = EMAIL_CONFIG.get('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = EMAIL_CONFIG.get('EMAIL_HOST_PASSWORD')

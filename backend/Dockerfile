@@ -1,4 +1,4 @@
-FROM python:3.12
+FROM python:3.13
 LABEL authors="RuVl_13"
 
 # Set enviroment variables

@@ -15,13 +15,13 @@ admin.site.unregister(Rate)
 # Setup custom Rate admin model
 @admin.register(Rate)
 class CustomRateAdmin(admin.ModelAdmin):
-	list_display = ("currency", "value", "last_update", "backend")
-	search_fields = ("currency",)
-	ordering = ("currency",)
+	list_display = ('currency', 'value', 'last_update', 'backend')
+	search_fields = ('currency',)
+	ordering = ('currency', 'backend__last_update')
 	actions = ['update_exchange_rates']
 
 	@admin.display(description='Last update')
-	def last_update(self, instance):
+	def last_update(self, instance: Rate):
 		return instance.backend.last_update
 
 	@admin.action(description='Update exchange rates')
@@ -30,7 +30,7 @@ class CustomRateAdmin(admin.ModelAdmin):
 		currencies = queryset.values_list('currency', flat=True)
 
 		backend = import_string(settings.EXCHANGE_BACKEND)()
-		backend_model, _ = ExchangeBackend.objects.update_or_create(name=backend.name, defaults={"base_currency": settings.BASE_CURRENCY})
+		backend_model, _ = ExchangeBackend.objects.update_or_create(name=backend.name, defaults={'base_currency': settings.BASE_CURRENCY})
 
 		params = backend.get_params()
 		params.update(base_currency=settings.BASE_CURRENCY, symbols=','.join(currencies))
@@ -42,9 +42,16 @@ class CustomRateAdmin(admin.ModelAdmin):
 				Rate(currency=currency, value=value, backend=backend_model)
 				for currency, value in rates.items()
 			])
-			self.message_user(request, "Exchange rates updates successfully", messages.SUCCESS)
+			self.message_user(request, 'Exchange rates updates successfully', messages.SUCCESS)
 		except Exception as e:
-			self.message_user(request, f"Error while updating exchange rates: {e}", messages.ERROR)
+			self.message_user(request, f'Error while updating exchange rates: {e}', messages.ERROR)
+
+
+class OrderItemInline(admin.TabularInline):
+	model = OrderItem
+	fields = ['passport']
+	readonly_fields = fields
+	extra = 0
 
 
 @admin.register(Order)
@@ -54,6 +61,7 @@ class OrderAdmin(admin.ModelAdmin):
 	list_filter = ('status', 'created_at', 'updated_at')
 	search_fields = ('user_email', 'id')
 	actions = None  # Disable any actions
+	inlines = [OrderItemInline]
 
 	def has_add_permission(self, request):
 		return False

@@ -53,7 +53,7 @@ class PassportAdmin(TranslationAdmin):
 
 @admin.register(PassportFile)
 class PassportFileAdmin(admin.ModelAdmin):
-	list_display = ['passport', 'file_path', 'status']
+	list_display = ['id', 'passport', 'file_path', 'status']
 	list_filter = ['status', 'passport__country']
 	search_fields = ['passport__name', 'file_path']
 	list_select_related = ['passport']

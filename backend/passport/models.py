@@ -19,13 +19,25 @@ class Country(models.Model):
 	name = models.CharField(max_length=255)
 	code = models.CharField(max_length=31, null=True, default=None)
 
+	@property
+	def flag(self) -> str:
+		return self.code2flag(self.code) if self.code != '-' else '-'
+
 	class Meta:
 		verbose_name = _('Country')
 		verbose_name_plural = _('Countries')
 		ordering = ['name']
 
 	def __str__(self):
-		return self.name
+		return f'{self.flag} - {self.name}'
+
+	@staticmethod
+	def code2flag(code: str | None) -> str:
+		"""Return emoji flag from country code (e.g. 'al' -> '🇦🇱')."""
+		return ''.join(
+			chr(0x1F1E6 + (ord(c.upper()) - ord('A')))
+			for c in code
+		) if code else ''
 
 
 class Passport(models.Model):
@@ -119,6 +131,7 @@ class PassportFile(models.Model):
 		SOLD = 'SOLD', _('Sold')
 
 	file_path = models.FileField(upload_to='products/passports/', unique=True)
+	# noinspection PyUnresolvedReferences
 	status = models.CharField(max_length=20, choices=PassportFileStatus.choices, default=PassportFileStatus.IN_STOCK, editable=False)
 
 	passport = models.ForeignKey(Passport, related_name='files', on_delete=models.SET_NULL, null=True)

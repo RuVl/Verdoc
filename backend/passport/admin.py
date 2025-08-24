@@ -1,7 +1,8 @@
 from django.contrib import admin
 from modeltranslation.admin import TranslationAdmin
 
-from passport.models import Passport, PassportFile, Country
+from passport.forms import CountryForm
+from passport.models import Country, Passport, PassportFile
 
 
 class PassportInline(admin.TabularInline):
@@ -13,9 +14,9 @@ class PassportInline(admin.TabularInline):
 
 @admin.register(Country)
 class CountryAdmin(TranslationAdmin):
-	list_display = ['name', 'code']
+	form = CountryForm
+	list_display = ['flag', 'name', 'code']
 	search_fields = ['name', 'code']
-	inlines = [PassportInline]
 
 
 class PassportFileInline(admin.TabularInline):

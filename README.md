@@ -1,6 +1,6 @@
 # Verdoc
 
-[Verif-docs](https://verif-docs.com) is a document purchase site built with Vue.js for the frontend and Django REST Framework (DRF) for the
+This is a document purchase site built with Vue.js for the frontend and Django REST Framework (DRF) for the
 backend,
 with nginx handling proxying and serving in Docker containers.
 

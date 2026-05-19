@@ -14,15 +14,14 @@ RUN apt-get update && apt-get install -y cron
 RUN touch /var/log/cron.log
 
 # Prepare project directory
-RUN mkdir -p /usr/src/app/
-WORKDIR /usr/src/app/
+WORKDIR /app
 
 # Copy and install requirements
-COPY ./requirements.txt ./
+COPY requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy project to directory
-COPY . ./
+COPY . .
 
 # Copy the cronjob, apply it
 COPY cronjob /etc/cron.d/expire-orders-cron

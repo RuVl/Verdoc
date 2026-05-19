@@ -1,19 +1,18 @@
-FROM node:24.2.0
+FROM node:22.12-alpine3.21
 LABEL authors="RuVl_13"
 
 # Set enviroment variables
 ENV TZ Europe/Moscow
 
 # Prepare project directory
-CMD mkdir -p /usr/src/app/
-WORKDIR /usr/src/app/
+WORKDIR /app
 
 # Copy and install dependencies
-COPY ./package.json ./
+COPY package.json ./
 RUN npm install --verbose
 
 # Copy project to directory
-COPY . ./
+COPY . .
 
 # Run app
 ENTRYPOINT exec npm run dev

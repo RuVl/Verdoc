@@ -22,7 +22,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
-      - static_volume:/usr/src/app/static
+      - static_volume:/app/static
+    env_file: frontend/.env
     ports:
       - "80:80"
       - "443:443"
@@ -56,9 +57,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
-      - products_volume:/usr/src/app/products
-      - static_volume:/usr/src/app/static
-      - ./backend/logs:/usr/src/app/logs
+      - products_volume:/app/products
+      - static_volume:/app/static
+      - ./backend/logs:/app/logs
     env_file:
       - backend/.env
       - postgres/.env  # For db connection

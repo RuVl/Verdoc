@@ -3,52 +3,52 @@ import {useSettingsStore} from "@/stores/settings.js";
 import apiClient from "@/api/index.js";
 
 export const useCurrenciesStore = defineStore('currencies', {
-	state: () => {
-		const currencies = [
-			{sign: '$', code: 'USD', name: 'United States dollar'},
-			{sign: '₽', code: 'RUB', name: 'Russian ruble'},
-		];
+    state: () => {
+        const currencies = [
+            {sign: '$', code: 'USD', name: 'United States dollar'},
+            {sign: '₽', code: 'RUB', name: 'Russian ruble'},
+        ];
 
-		const settingsStore = useSettingsStore();
-		const currentCurrency = currencies.find(v => v.code === settingsStore.currentCurrency);
+        const settingsStore = useSettingsStore();
+        const currentCurrency = currencies.find(v => v.code === settingsStore.currentCurrency);
 
-		return {
-			currencies,
-			currentCurrency,
-			exchangeRates: {}
-		};
-	},
-	actions: {
-		setCurrency(currency) {
-			this.currentCurrency = currency;
-			const settingsStore = useSettingsStore();
-			settingsStore.setCurrency(currency.code);
-		},
-		async updateExchangeRates() {
-			try {
-				const response = await apiClient.get('/exchange-rates/');
-				this.exchangeRates = response.data;
-			} catch (error) {
-				console.error('Failed to fetch exchange rates:', error);
-			}
-		},
-		convert(amount, fromCurrency, toCurrency = null) {
-			toCurrency ||= this.currentCurrency.code;
-			if (fromCurrency === toCurrency)
-				return amount;
+        return {
+            currencies,
+            currentCurrency,
+            exchangeRates: {}
+        };
+    },
+    actions: {
+        setCurrency(currency) {
+            this.currentCurrency = currency;
+            const settingsStore = useSettingsStore();
+            settingsStore.setCurrency(currency.code);
+        },
+        async updateExchangeRates() {
+            try {
+                const response = await apiClient.get('/exchange-rates/');
+                this.exchangeRates = response.data;
+            } catch (error) {
+                console.error('Failed to fetch exchange rates:', error);
+            }
+        },
+        convert(amount, fromCurrency, toCurrency = null) {
+            toCurrency ||= this.currentCurrency.code;
+            if (fromCurrency === toCurrency)
+                return amount;
 
-			const rate = this.exchangeRates[toCurrency] / this.exchangeRates[fromCurrency];
-			return amount * rate;
-		}
-	}
+            const rate = this.exchangeRates[toCurrency] / this.exchangeRates[fromCurrency];
+            return amount * rate;
+        }
+    }
 });
 
 // After mounting app
 setTimeout(async () => {
-	await useCurrenciesStore().updateExchangeRates();
+    await useCurrenciesStore().updateExchangeRates();
 }, 1);
 
 // Update currency rate from server every hour
 setInterval(async () => {
-	await useCurrenciesStore().updateExchangeRates();
+    await useCurrenciesStore().updateExchangeRates();
 }, 3600_000);

@@ -13,7 +13,8 @@ function selectCurrency(currency) {
 </script>
 
 <template>
-  <div :class="{ active: isActive }" class="currency-switch" tabindex="0" @blur="isActive = false" @keydown.enter="isActive = !isActive">
+  <div :class="{ active: isActive }" class="currency-switch" tabindex="0" @blur="isActive = false"
+       @keydown.enter="isActive = !isActive">
     <div class="selected-currency" @click="isActive = !isActive">
       <span>{{ currenciesStore.currentCurrency.code }}</span>
       <DropdownIcon class="dropdown-icon"/>

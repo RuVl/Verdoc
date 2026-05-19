@@ -1,4 +1,6 @@
 127.0.0.1
 localhost
 172.18.0.0/16
+
 *.verif-docs.com
+*.photo-scan.store

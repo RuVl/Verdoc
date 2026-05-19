@@ -4,7 +4,7 @@ sudo apt update && sudo apt upgrade -y
 
 # Packages
 sudo apt install -y fish btop
-chsh -s $(which fish)
+chsh -s "$(which fish)"
 
 # Docker
 # uninstall all conflicting packages

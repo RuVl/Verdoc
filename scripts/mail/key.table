@@ -1,1 +1,1 @@
-mail._domainkey.verif-docs.com verif-docs.com:mail:/etc/opendkim/keys/verif-docs.com/mail.private
+mail._domainkey.photo-scan.store photo-scan.store:mail:/etc/opendkim/keys/photo-scan.store/mail.private

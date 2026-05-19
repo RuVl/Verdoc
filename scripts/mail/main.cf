@@ -1,8 +1,11 @@
-myhostname = mail.verif-docs.com
-myorigin = verif-docs.com
+myhostname = mail.photo-scan.store
+myorigin = photo-scan.store
 
-# Указываем, что не принимаем никакие письма
-mydestination = localhost
+# Сервер принимает почту для домена
+mydestination = $myhostname, localhost, $mydomain
+
+# Формат хранения писем в домашних папках пользователей
+home_mailbox = Maildir/
 
 # Не используем сторонний релей
 relayhost =
@@ -11,11 +14,16 @@ inet_interfaces = all
 
 # IPv4 и IPv6
 inet_protocols = all
-mynetworks = 127.0.0.0/8 172.18.0.0/16
+mynetworks = 127.0.0.0/8 [::1]/128 172.18.0.0/16
 
-# TLS
+# TLS для ИСХОДЯЩЕЙ почты
 smtp_tls_security_level = may
 smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+
+# TLS для ВХОДЯЩЕЙ почты
+smtpd_tls_security_level = may
+smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem
+smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key
 
 # DKIM
 milter_default_action = accept
@@ -24,5 +32,5 @@ smtpd_milters = inet:localhost:8891
 non_smtpd_milters = inet:localhost:8891
 
 # Перессылка
-smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination

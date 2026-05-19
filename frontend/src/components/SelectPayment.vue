@@ -37,9 +37,11 @@ function buy() {
     <template #default>
       <form class="payment-form" @submit.prevent="buy">
         {{ $t('cart_view.modal_window.email.ask') }}
-        <pretty-input v-model="payment_form.email" :placeholder="$t('cart_view.modal_window.email.placeholder')" name="user_email" type="email"/>
+        <pretty-input v-model="payment_form.email" :placeholder="$t('cart_view.modal_window.email.placeholder')"
+                      name="user_email" type="email"/>
         {{ $t('cart_view.modal_window.choose_method') }}
-        <CustomSelect v-model:selected="payment_form.method" :elements="orderStore.payment_methods" class="payment-method">
+        <CustomSelect v-model:selected="payment_form.method" :elements="orderStore.payment_methods"
+                      class="payment-method">
           <template #default="{element: method}">
             <img :src="method.icon" class="option-icon"/>
             <span class="option-text">{{ method.name }}</span>

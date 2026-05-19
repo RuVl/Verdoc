@@ -17,7 +17,8 @@ function setLanguage(language) {
 </script>
 
 <template>
-  <div :class="{ active: isActive }" class="lang-switch" tabindex="0" @blur="isActive = false" @keydown.enter="isActive = !isActive">
+  <div :class="{ active: isActive }" class="lang-switch" tabindex="0" @blur="isActive = false"
+       @keydown.enter="isActive = !isActive">
     <div class="selected-flag" @click="isActive = !isActive">
       <CountryFlag :country="languagesStore.currentLanguage.flag" class="flag-icon"/>
       <DropdownIcon class="dropdown-icon"/>

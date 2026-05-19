@@ -1,37 +1,50 @@
 # Use node.js for building the frontend
-FROM node:20.14.0 AS build-stage
+FROM node:22.12-alpine3.21 AS build-stage
 LABEL authors="RuVl_13"
 
 # Set enviroment variables
 ENV TZ Europe/Moscow
 
 # Prepare project directory
-CMD mkdir -p /usr/src/app/
-WORKDIR /usr/src/app/
+WORKDIR /app
 
-# Copy and install dependencies
-COPY ./package.json ./
+# Install dependencies
+COPY package.json ./
 RUN npm install --verbose
 
-# Copy project to directory
-COPY . ./
+# Copy source and build frontend
+COPY . .
 RUN npm run build
+
 
 # Use nginx for serving the static files
 FROM nginx:1.26.0
 LABEL authors="RuVl_13"
 
-# Copy built files to nginx
-COPY --from=build-stage /usr/src/app/dist /usr/share/nginx/html
+# Set enviroment variables
+ENV TZ=Europe/Moscow
+ENV NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
+ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
+ENV NGINX_ENVSUBST_FILTER='DOMAIN'
 
-# Copy the nginx configuration file
-COPY ./nginx/verdoc.conf /etc/nginx/conf.d/
+# Install envsubst
+RUN apt-get update && \
+    apt-get install -y gettext-base && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy ssl files
+# Copy frontend build
+COPY --from=build-stage /app/dist /usr/share/nginx/html
+
+# Copy nginx template
+COPY ./nginx/verdoc.conf.template /etc/nginx/templates/verdoc.conf.template
+
+# Copy SSL certificates
 COPY ./nginx/ssl/ /etc/ssl/
 
-# Touch log files for nginx
-RUN mkdir -p /usr/www/logs && touch /usr/www/logs/nginx_access.log
+# Prepare logs
+RUN mkdir -p /usr/www/logs && \
+    touch /usr/www/logs/nginx_access.log && \
+    touch /usr/www/logs/nginx_error.log
 
-# Start nginx to serve the application (in foreground)
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+# Generate nginx config from template and run nginx
+# (automatically from nginx's Dockerfile)

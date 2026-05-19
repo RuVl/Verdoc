@@ -6,7 +6,8 @@ defineProps({
 </script>
 
 <template>
-  <router-link v-if="href" :class="{ disabled: disabled }" :to="href.startsWith('/') ? href : {name: href}" class="cmn-btn">
+  <router-link v-if="href" :class="{ disabled: disabled }" :to="href.startsWith('/') ? href : {name: href}"
+               class="cmn-btn">
     <slot/>
   </router-link>
   <button v-else :class="{ disabled: disabled }" class="cmn-btn">

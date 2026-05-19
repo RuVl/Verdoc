@@ -1,6 +1,7 @@
 # Verdoc
 
-[Verif-docs](https://verif-docs.com) is a document purchase site built with Vue.js for the frontend and Django REST Framework (DRF) for the
+This is a purchase site built with Vue.js for the frontend and Django REST
+Framework (DRF) for the
 backend,
 with nginx handling proxying and serving in Docker containers.
 
@@ -20,7 +21,8 @@ with nginx handling proxying and serving in Docker containers.
     cd verif-docs
     ```
 2. **Environment Configuration** \
-   Set up the environment variables by copying the `.env.dist` files to `.env` files in the respective directories (`frontend`, `backend`, and
+   Set up the environment variables by copying the `.env.dist` files to `.env` files in the respective directories (
+   `frontend`, `backend`, and
    `postgres`) and changing them.
 3. **Build and Run Docker Containers**
     ```bash
@@ -51,7 +53,8 @@ with nginx handling proxying and serving in Docker containers.
    If the order is not completed within one hour, the reservation expires, and the products are made available again.
 
 2. **Payment and Download Links** \
-   Upon order creation, users are redirected to the payment site. After successful payment, download links are sent to the provided email.
+   Upon order creation, users are redirected to the payment site. After successful payment, download links are sent to
+   the provided email.
 
 3. **Currency Exchange** \
    To update the currency exchange rates, press the corresponding button in the Django admin panel.
@@ -90,7 +93,8 @@ with nginx handling proxying and serving in Docker containers.
 
 ## Contributing
 
-Feel free to fork the repository and submit pull requests. For major changes, please open an issue first to discuss what you would like to change.
+Feel free to fork the repository and submit pull requests. For major changes, please open an issue first to discuss what
+you would like to change.
 
 ### License
 

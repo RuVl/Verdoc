@@ -1,15 +1,18 @@
 # IDE folder
 .idea/
+.vscode/
 
 # Design folder
 design/
 
 # Virtual enviroment
-venv
-node_modules
+.venv/
+venv/
+.python-version
+node_modules/
 
 # Enviroment variables
-**/.env
+*.env
 
 # Logging files
 *.log

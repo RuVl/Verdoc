@@ -45,7 +45,9 @@ function add2cart(passport) {
 
 <template>
   <Block class="site-info">
-    <h2>{{ $t('site_info.title.first') }} <span style="color: var(--accent-color)">{{ $t('site_info.title.second') }}</span></h2>
+    <h2>{{ $t('site_info.title.first') }} <span style="color: var(--accent-color)">{{
+        $t('site_info.title.second')
+      }}</span></h2>
     <div class="description">{{ $t('site_info.description') }}</div>
     <div class="support-btn-wrapper">
       <CommonButton href="support">{{ $t('buttons.support') }}</CommonButton>
@@ -96,7 +98,10 @@ function add2cart(passport) {
               <CartIcon size="small"/>
               {{ $t('buttons.add2cart') }}
             </button>
-            <CommonButton type="button" @click="instant_buy=false; select_payment=true">{{ $t('buttons.buy_now') }}</CommonButton>
+            <CommonButton type="button" @click="instant_buy=false; select_payment=true">{{
+                $t('buttons.buy_now')
+              }}
+            </CommonButton>
           </div>
         </div>
       </template>

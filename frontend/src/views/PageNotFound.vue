@@ -7,14 +7,19 @@ import CommonButton from "@/components/CommonButton.vue";
     <div class="wrapper">
       <div class="page-not-found">
         <div>
-          <svg aria-label="A piece of paper torn in half" class="paper" height="300px" role="img" viewBox="0 0 300 300" width="300px">
-            <g class="paper__outline" fill="none" stroke="hsl(0,10%,10%)" stroke-linecap="round" stroke-linejoin="round" stroke-width="8"
+          <svg aria-label="A piece of paper torn in half" class="paper" height="300px" role="img" viewBox="0 0 300 300"
+               width="300px">
+            <g class="paper__outline" fill="none" stroke="hsl(0,10%,10%)" stroke-linecap="round" stroke-linejoin="round"
+               stroke-width="8"
                transform="translate(61,4)">
               <g class="paper__top" transform="translate(0,25)">
-                <polygon class="paper__shadow" fill="hsl(0,10%,70%)" points="0 148,0 0,137 0,187 50,187 148,155 138,124 148,93 138,62 148,31 138"
+                <polygon class="paper__shadow" fill="hsl(0,10%,70%)"
+                         points="0 148,0 0,137 0,187 50,187 148,155 138,124 148,93 138,62 148,31 138"
                          stroke="none" transform="translate(-12,12)"/>
-                <rect class="paper__tear-fill" fill="hsl(0,0%,100%)" height="23px" stroke="none" width="0" x="0" y="137"/>
-                <polygon class="paper__fill" fill="hsl(0,0%,100%)" points="0 148,0 0,137 0,187 50,187 148,155 138,124 148,93 138,62 148,31 138"
+                <rect class="paper__tear-fill" fill="hsl(0,0%,100%)" height="23px" stroke="none" width="0" x="0"
+                      y="137"/>
+                <polygon class="paper__fill" fill="hsl(0,0%,100%)"
+                         points="0 148,0 0,137 0,187 50,187 148,155 138,124 148,93 138,62 148,31 138"
                          stroke="none"/>
                 <polygon class="paper__shadow" fill="hsl(0,10%,70%)" points="137 0,132 55,187 50,142 45" stroke="none"/>
                 <polyline points="137 0,142 45,187 50"/>
@@ -24,13 +29,16 @@ import CommonButton from "@/components/CommonButton.vue";
                   <polyline points="22 110,165 110"/>
                   <polyline points="22 132,165 132"/>
                 </g>
-                <polyline class="paper__tear" points="0 148,31 138,62 148,93 138,124 148,155 138,187 148" stroke-dasharray="198 198"
+                <polyline class="paper__tear" points="0 148,31 138,62 148,93 138,124 148,155 138,187 148"
+                          stroke-dasharray="198 198"
                           stroke-dashoffset="-198"/>
               </g>
               <g class="paper__bottom" transform="translate(0,25)">
-                <polygon class="paper__shadow" fill="hsl(0,10%,70%)" points="0 148,31 138,62 148,93 138,124 148,155 138,187 148,187 242,0 242"
+                <polygon class="paper__shadow" fill="hsl(0,10%,70%)"
+                         points="0 148,31 138,62 148,93 138,124 148,155 138,187 148,187 242,0 242"
                          stroke="none" transform="translate(-12,12)"/>
-                <polygon class="paper__fill" fill="hsl(0,0%,100%)" points="0 148,31 140,62 148,93 138,124 148,155 138,187 148,187 242,0 242"
+                <polygon class="paper__fill" fill="hsl(0,0%,100%)"
+                         points="0 148,31 140,62 148,93 138,124 148,155 138,187 148,187 242,0 242"
                          stroke="none"/>
                 <polyline points="187 148,187 242,0 242,0 148"/>
                 <g class="paper__lines" stroke="hsl(0,10%,70%)">
@@ -38,7 +46,8 @@ import CommonButton from "@/components/CommonButton.vue";
                   <polyline points="22 176,165 176"/>
                   <polyline points="22 198,94 198"/>
                 </g>
-                <polyline class="paper__tear" points="0 148,31 138,62 148,93 138,124 148,155 138,187 148" stroke-dasharray="198 198"
+                <polyline class="paper__tear" points="0 148,31 138,62 148,93 138,124 148,155 138,187 148"
+                          stroke-dasharray="198 198"
                           stroke-dashoffset="-198"/>
               </g>
             </g>

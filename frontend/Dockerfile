@@ -1,9 +1,9 @@
 # Use node.js for building the frontend
-FROM node:22.12-alpine3.21 AS build-stage
+FROM docker.io/library/node:22.12-alpine3.21 AS build-stage
 LABEL authors="RuVl_13"
 
 # Set enviroment variables
-ENV TZ Europe/Moscow
+ENV TZ=Europe/Moscow
 
 # Prepare project directory
 WORKDIR /app
@@ -18,7 +18,7 @@ RUN npm run build
 
 
 # Use nginx for serving the static files
-FROM nginx:1.26.0
+FROM docker.io/library/nginx:1.26.0
 LABEL authors="RuVl_13"
 
 # Set enviroment variables

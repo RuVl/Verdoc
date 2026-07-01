@@ -21,6 +21,4 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.SUCCESS("Successfully updated exchange rates"))
         except Exception as e:
-            self.stdout.write(
-                self.style.ERROR(f"Cannot delete unpaid transactions: {e}")
-            )
+            self.stdout.write(self.style.ERROR(f"Cannot delete unpaid transactions: {e}"))

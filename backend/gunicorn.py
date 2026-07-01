@@ -33,9 +33,7 @@ loglevel = env.str("GUNICORN_LOG_LEVEL", "INFO").upper()
 capture_output = True  # Перехватывает stdout/stderr Django приложения
 
 # Формат access логов (работает с logconfig_dict)
-access_log_format = (
-    '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s %(p)s'
-)
+access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s %(p)s'
 
 # Детальный формат логов
 logconfig_dict = {

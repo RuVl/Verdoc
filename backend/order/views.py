@@ -9,7 +9,7 @@ from django import views
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.db import transaction
-from django.http import HttpResponseNotFound, FileResponse
+from django.http import FileResponse, HttpResponseNotFound
 from django.shortcuts import get_object_or_404
 from djmoney.money import Money
 from rest_framework import status
@@ -17,7 +17,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from passport.models import PassportFile
-from .models import Order, Transaction, DownloadLink, OrderItem
+
+from .models import DownloadLink, Order, OrderItem, Transaction
 from .serializers import OrderSerializer, SendDownloadLinksSerializer
 from .utils import send_download_links
 
@@ -58,16 +59,12 @@ class OrderCreateView(APIView):
             "expire_min": "60",
         }
 
-        response = requests.get(
-            "https://plisio.net/api/v1/invoices/new", params=invoice_data
-        )
+        response = requests.get("https://plisio.net/api/v1/invoices/new", params=invoice_data)
         if response.status_code == 200 and response.json().get("status") == "success":
             logger.info(f"Order {order.id} created successfully")
             redirect_url = response.json()["data"]["invoice_url"]
 
-            return Response(
-                {"redirect_url": redirect_url}, status=status.HTTP_201_CREATED
-            )
+            return Response({"redirect_url": redirect_url}, status=status.HTTP_201_CREATED)
         else:
             logger.info(f"Invoice has not created for order {order.id}")
             try:
@@ -78,9 +75,7 @@ class OrderCreateView(APIView):
             except ValueError as e:
                 logger.warning(str(e))  # Silence errors
 
-            return Response(
-                {"detail": "Error creating invoice"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Error creating invoice"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PlisioCallbackView(APIView):
@@ -94,9 +89,7 @@ class PlisioCallbackView(APIView):
             settings.PLISIO_SECRET_KEY,
             settings.MIRROR_PLISIO_SECRET_KEY,
         ):
-            ordered_data = json.dumps(
-                data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-            )
+            ordered_data = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
             calculated_hash = hmac.new(
                 secret_key.encode("utf-8"), ordered_data.encode("utf-8"), hashlib.sha1
             ).hexdigest()
@@ -109,9 +102,7 @@ class PlisioCallbackView(APIView):
     def post(self, request, *args, **kwargs):
         data = request.data.copy()
         if not self.validate_hash(data):
-            logger.warning(
-                f"Hash verification failed for transaction {data.get('txn_id')}"
-            )
+            logger.warning(f"Hash verification failed for transaction {data.get('txn_id')}")
             return Response(
                 {"detail": "Invalid verify_hash"},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -176,9 +167,7 @@ class PlisioCallbackView(APIView):
 
         with transaction.atomic():
             order.save()
-            t, _ = Transaction.objects.update_or_create(
-                order=order, defaults=update_data
-            )
+            t, _ = Transaction.objects.update_or_create(order=order, defaults=update_data)
 
         return t
 
@@ -194,18 +183,14 @@ class DownloadLinksView(views.View):
             return HttpResponseNotFound()
 
         try:
-            download_link = DownloadLink.objects.get(
-                uuid=uuid, order_item__order__user_email=email
-            )
+            download_link = DownloadLink.objects.get(uuid=uuid, order_item__order__user_email=email)
         except DownloadLink.DoesNotExist:
             return HttpResponseNotFound()
 
         if download_link.is_expired():
             return HttpResponseNotFound("Expired download link")
 
-        return FileResponse(
-            open(download_link.passport_file.file_path.path, "rb"), as_attachment=True
-        )
+        return FileResponse(open(download_link.passport_file.file_path.path, "rb"), as_attachment=True)
 
 
 class SendDownloadLinksView(APIView):
@@ -262,9 +247,7 @@ class SendDownloadLinksView(APIView):
             item_links.extend(created_download_links)
 
             if len(item_links) < order_item.quantity:
-                raise ValueError(
-                    f"Not enough download links for order item {order_item.id}"
-                )
+                raise ValueError(f"Not enough download links for order item {order_item.id}")
 
         for item_link in item_links:
             item_link.update_link()

@@ -2,7 +2,7 @@ import logging
 
 from django.utils import translation
 from djmoney.contrib.exchange.models import Rate
-from rest_framework import viewsets, views
+from rest_framework import views, viewsets
 from rest_framework.response import Response
 
 from passport.models import Country

@@ -2,7 +2,7 @@ from modeltranslation.translator import translator
 from modeltranslation.utils import get_translation_fields
 from rest_framework import serializers
 
-from passport.models import Passport, Country
+from passport.models import Country, Passport
 
 
 # noinspection PyUnresolvedReferences

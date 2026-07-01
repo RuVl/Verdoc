@@ -2,7 +2,7 @@ from django.db.transaction import atomic
 from djmoney.contrib.exchange.models import convert_money
 from rest_framework import serializers
 
-from order.models import OrderItem, Order
+from order.models import Order, OrderItem
 from passport.models import Passport
 
 
@@ -24,9 +24,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
     def validate(self, data):
         passport = data["passport"]
         if passport.quantity < data["quantity"]:
-            raise serializers.ValidationError(
-                detail=f"Not enough available passports for {passport.id}"
-            )
+            raise serializers.ValidationError(detail=f"Not enough available passports for {passport.id}")
 
         return data
 
@@ -54,9 +52,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
         for item in items_data:
             if item["passport"].quantity < item["quantity"]:
-                raise serializers.ValidationError(
-                    f"There are not enough passports {item['passport'].name}"
-                )
+                raise serializers.ValidationError(f"There are not enough passports {item['passport'].name}")
 
             amount = convert_money(item["passport"].price, "USD").amount
             total_price += amount * item["quantity"]

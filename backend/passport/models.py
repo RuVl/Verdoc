@@ -34,11 +34,7 @@ class Country(models.Model):
     @staticmethod
     def code2flag(code: str | None) -> str:
         """Return emoji flag from country code (e.g. 'al' -> '🇦🇱')."""
-        return (
-            "".join(chr(0x1F1E6 + (ord(c.upper()) - ord("A"))) for c in code)
-            if code
-            else ""
-        )
+        return "".join(chr(0x1F1E6 + (ord(c.upper()) - ord("A"))) for c in code) if code else ""
 
 
 class Passport(models.Model):
@@ -53,13 +49,9 @@ class Passport(models.Model):
 
     name = models.CharField(max_length=255)
     price = MoneyField(max_digits=10, decimal_places=2, default_currency="USD")
-    quantity = models.PositiveIntegerField(
-        default=0, editable=False, verbose_name="In stock"
-    )
+    quantity = models.PositiveIntegerField(default=0, editable=False, verbose_name="In stock")
 
-    country = models.ForeignKey(
-        Country, related_name="passports", on_delete=models.CASCADE
-    )
+    country = models.ForeignKey(Country, related_name="passports", on_delete=models.CASCADE)
 
     class Meta:
         verbose_name = _("Passport")
@@ -75,9 +67,7 @@ class Passport(models.Model):
         if self.quantity < count:
             raise ValueError("Passport quantity must be less than or equal to count")
 
-        files = self.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK)[
-            :count
-        ]
+        files = self.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK)[:count]
         assert len(files) == count, "Passport quantity is incorrect"
 
         self.quantity -= count
@@ -93,14 +83,10 @@ class Passport(models.Model):
     def return2stock(self, count) -> list["PassportFile"]:
         """Returns reserved passport files to stock"""
 
-        files = self.files.filter(status=PassportFile.PassportFileStatus.RESERVED)[
-            :count
-        ]
+        files = self.files.filter(status=PassportFile.PassportFileStatus.RESERVED)[:count]
 
         if len(files) != count:
-            raise ValueError(
-                "Count must be less than or equal to reserved passport files"
-            )
+            raise ValueError("Count must be less than or equal to reserved passport files")
 
         self.quantity += count
         for file in files:
@@ -116,9 +102,7 @@ class Passport(models.Model):
     def sell(self, count) -> list["PassportFile"]:
         """Sell reserved passport files"""
 
-        files = self.files.filter(status=PassportFile.PassportFileStatus.RESERVED)[
-            :count
-        ]
+        files = self.files.filter(status=PassportFile.PassportFileStatus.RESERVED)[:count]
         assert len(files) == count, "Not enough reserved passport files"
 
         for file in files:
@@ -152,9 +136,7 @@ class PassportFile(models.Model):
         editable=False,
     )
 
-    passport = models.ForeignKey(
-        Passport, related_name="files", on_delete=models.SET_NULL, null=True
-    )
+    passport = models.ForeignKey(Passport, related_name="files", on_delete=models.SET_NULL, null=True)
 
     class Meta:
         verbose_name = _("Passport File")

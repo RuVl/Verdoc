@@ -4,9 +4,9 @@ from django.db.models import QuerySet
 from django.db.transaction import atomic
 from django.utils.html import format_html
 from django.utils.module_loading import import_string
-from djmoney.contrib.exchange.models import Rate, ExchangeBackend
+from djmoney.contrib.exchange.models import ExchangeBackend, Rate
 
-from .models import Order, OrderItem, DownloadLink, Transaction
+from .models import DownloadLink, Order, OrderItem, Transaction
 
 # Disable django-money's Rate admin model
 admin.site.unregister(Rate)
@@ -36,26 +36,17 @@ class CustomRateAdmin(admin.ModelAdmin):
         )
 
         params = backend.get_params()
-        params.update(
-            base_currency=settings.BASE_CURRENCY, symbols=",".join(currencies)
-        )
+        params.update(base_currency=settings.BASE_CURRENCY, symbols=",".join(currencies))
         rates = backend.get_rates(**params)
 
         try:
             queryset.delete()
             Rate.objects.bulk_create(
-                [
-                    Rate(currency=currency, value=value, backend=backend_model)
-                    for currency, value in rates.items()
-                ],
+                [Rate(currency=currency, value=value, backend=backend_model) for currency, value in rates.items()],
             )
-            self.message_user(
-                request, "Exchange rates updates successfully", messages.SUCCESS
-            )
+            self.message_user(request, "Exchange rates updates successfully", messages.SUCCESS)
         except Exception as e:
-            self.message_user(
-                request, f"Error while updating exchange rates: {e}", messages.ERROR
-            )
+            self.message_user(request, f"Error while updating exchange rates: {e}", messages.ERROR)
 
 
 class OrderItemInline(admin.TabularInline):
@@ -100,10 +91,14 @@ class OrderAdmin(admin.ModelAdmin):
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):
     list_display = ("order", "passport", "quantity", "is_reserved", "order__status")
-    readonly_fields = ("order", "passport", "quantity", "is_reserved", "order__status")
+    readonly_fields = ("order", "passport", "quantity", "is_reserved", "order_status")
     list_filter = ("is_reserved", "order__status", "order")
     search_fields = ("order__user_email", "passport__name")
     actions = None  # Disable any actions
+
+    @admin.display(description="Order status")
+    def order_status(self, obj):
+        return obj.order.get_status_display()
 
     def has_add_permission(self, request):
         return False
@@ -139,9 +134,7 @@ class DownloadLinkAdmin(admin.ModelAdmin):
 
     @admin.display(description="Download link")
     def link(self, obj: DownloadLink):
-        return format_html(
-            "<a href='{url}'>{text}</a>", url=obj.get_link(self.request), text=obj.uuid
-        )
+        return format_html("<a href='{url}'>{text}</a>", url=obj.get_link(self.request), text=obj.uuid)
 
     def has_add_permission(self, request):
         return False

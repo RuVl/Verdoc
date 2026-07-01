@@ -1,4 +1,4 @@
-FROM postgres:16.2
+FROM docker.io/library/postgres:16.2
 
 # Install cron
 RUN apt-get update && apt-get install -y cron

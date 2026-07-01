@@ -1,4 +1,4 @@
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from .models import PassportFile
@@ -9,7 +9,5 @@ from .models import PassportFile
 def update_passport_quantity(sender, instance, **kwargs):
     passport = instance.passport
     if passport:
-        passport.quantity = passport.files.filter(
-            status=PassportFile.PassportFileStatus.IN_STOCK
-        ).count()
+        passport.quantity = passport.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK).count()
         passport.save()

@@ -31,9 +31,7 @@ class Order(models.Model):
         CANCELLED = "CANCELLED", "Cancelled"
 
     user_email = models.EmailField()
-    status = models.CharField(
-        max_length=15, choices=OrderStatus.choices, default=OrderStatus.PENDING
-    )
+    status = models.CharField(max_length=15, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     total_price = MoneyField(max_digits=10, decimal_places=2, default_currency="USD")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -46,9 +44,7 @@ class Order(models.Model):
         from_created = timedelta(hours=1, minutes=10)  # From creation
         from_updated = timedelta(hours=1)  # From last update
 
-        return (
-            now > self.created_at + from_created or now > self.updated_at + from_updated
-        )
+        return now > self.created_at + from_created or now > self.updated_at + from_updated
 
     @atomic
     def reset_reservation(self):
@@ -74,9 +70,7 @@ class OrderItem(models.Model):
     """
 
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
-    passport = models.ForeignKey(
-        "passport.Passport", on_delete=models.SET_NULL, null=True
-    )
+    passport = models.ForeignKey("passport.Passport", on_delete=models.SET_NULL, null=True)
     quantity = models.PositiveIntegerField()
     is_reserved = models.BooleanField(default=False, editable=False)
 
@@ -129,9 +123,7 @@ class DownloadLink(models.Model):
     """
 
     order_item = models.ForeignKey(OrderItem, on_delete=models.CASCADE)
-    passport_file = models.OneToOneField(
-        "passport.PassportFile", on_delete=models.PROTECT
-    )
+    passport_file = models.OneToOneField("passport.PassportFile", on_delete=models.PROTECT)
     uuid = models.UUIDField(default=uuid.uuid4, unique=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -148,9 +140,7 @@ class DownloadLink(models.Model):
         self.save()
 
     def get_link(self, request: HttpRequest | None):
-        relative_path = reverse(
-            "download-file", args=[self.order_item.order.user_email, self.uuid]
-        )
+        relative_path = reverse("download-file", args=[self.order_item.order.user_email, self.uuid])
         scheme = settings.SITE_SCHEME
         domain = Site.objects.get_current(request).domain
         return f"{scheme}://{domain}{relative_path}"
@@ -168,7 +158,8 @@ class Transaction(models.Model):
     :param source_price: Source amount and currency of the transaction (if provided).
     :param source_rate: Exchange rate currency to source_currency (if source_currency provided).
     :param commission: Commission amount of the transaction.
-    :param status: Status of the transaction: new, pending, pending internal, expired, completed, mismatch, error, cancelled, cancelled duplicate.
+    :param status: Status of the transaction: new, pending, pending internal, expired, completed,
+        mismatch, error, cancelled, cancelled duplicate.
     :param confirmations: Number of confirmations of the crypto transaction.
     :param created_at: Date and time of the transaction create.
     :param updated_at: Date and time of the last transaction update.
@@ -188,9 +179,7 @@ class Transaction(models.Model):
         CANCELLED = "cancelled", "Cancelled"
         CANCELLED_DUPLICATE = "cancelled duplicate", "Cancelled Duplicate"
 
-    order = models.OneToOneField(
-        Order, on_delete=models.CASCADE, related_name="transaction"
-    )
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="transaction")
     txn_id = models.CharField(max_length=100, null=True, blank=True)
 
     amount = models.DecimalField(max_digits=20, decimal_places=10)
@@ -203,16 +192,10 @@ class Transaction(models.Model):
         null=True,
         blank=True,
     )  # source_amount and source_currency
-    source_rate = models.DecimalField(
-        max_digits=20, decimal_places=10, null=True, blank=True
-    )
-    commission = models.DecimalField(
-        max_digits=20, decimal_places=10, null=True, blank=True
-    )
+    source_rate = models.DecimalField(max_digits=20, decimal_places=10, null=True, blank=True)
+    commission = models.DecimalField(max_digits=20, decimal_places=10, null=True, blank=True)
 
-    status = models.CharField(
-        max_length=30, choices=TransactionStatus.choices, default=TransactionStatus.NEW
-    )
+    status = models.CharField(max_length=30, choices=TransactionStatus.choices, default=TransactionStatus.NEW)
     confirmations = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

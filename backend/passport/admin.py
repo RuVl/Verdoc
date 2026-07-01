@@ -27,10 +27,7 @@ class PassportFileInline(admin.TabularInline):
     extra = 0
 
     def has_delete_permission(self, request, obj=None):
-        if (
-            isinstance(obj, PassportFile)
-            and obj.status != PassportFile.PassportFileStatus.IN_STOCK
-        ):
+        if isinstance(obj, PassportFile) and obj.status != PassportFile.PassportFileStatus.IN_STOCK:
             return False
         return super().has_delete_permission(request, obj)
 

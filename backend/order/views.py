@@ -7,6 +7,7 @@ from decimal import Decimal
 import requests
 from django import views
 from django.conf import settings
+from django.contrib.sites.models import Site
 from django.db import transaction
 from django.http import HttpResponseNotFound, FileResponse
 from django.shortcuts import get_object_or_404
@@ -40,6 +41,11 @@ class OrderCreateView(APIView):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        if Site.objects.get_current(request).domain == settings.ALLOWED_HOSTS[0]:
+            secret_key = settings.PLISIO_SECRET_KEY
+        else:
+            secret_key = settings.MIRROR_PLISIO_SECRET_KEY
+
         # Prepare data for plisio invoice
         invoice_data = {
             "order_name": f"Order {order.id}",
@@ -47,7 +53,7 @@ class OrderCreateView(APIView):
             "source_currency": order.total_price.currency,
             "source_amount": order.total_price.amount,
             "email": order.user_email,
-            "api_key": settings.PLISIO_SECRET_KEY,
+            "api_key": secret_key,
             "language": "en_US",
             "expire_min": "60",
         }
@@ -83,16 +89,22 @@ class PlisioCallbackView(APIView):
     @staticmethod
     def validate_hash(data):
         received_hash = data.pop("verify_hash", None)
-        secret_key = settings.PLISIO_SECRET_KEY
 
-        ordered_data = json.dumps(
-            data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        )
-        calculated_hash = hmac.new(
-            secret_key.encode("utf-8"), ordered_data.encode("utf-8"), hashlib.sha1
-        ).hexdigest()
+        for secret_key in (
+            settings.PLISIO_SECRET_KEY,
+            settings.MIRROR_PLISIO_SECRET_KEY,
+        ):
+            ordered_data = json.dumps(
+                data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+            calculated_hash = hmac.new(
+                secret_key.encode("utf-8"), ordered_data.encode("utf-8"), hashlib.sha1
+            ).hexdigest()
 
-        return calculated_hash == received_hash
+            if calculated_hash == received_hash:
+                return True
+
+        return False
 
     def post(self, request, *args, **kwargs):
         data = request.data.copy()
@@ -111,7 +123,7 @@ class PlisioCallbackView(APIView):
         match order.status:
             case Order.OrderStatus.PAID | Order.OrderStatus.OVERPAID:
                 download_links = order.sell()
-                send_download_links(download_links, order.user_email)
+                send_download_links(request, download_links, order.user_email)
             case Order.OrderStatus.EXPIRED | Order.OrderStatus.CANCELLED:
                 order.reset_reservation()
 
@@ -223,7 +235,7 @@ class SendDownloadLinksView(APIView):
             for order_item in order.items.all():
                 download_links.extend(self.get_order_item_links(order_item))
 
-        send_download_links(download_links, user_email)
+        send_download_links(request, download_links, user_email)
         return Response({"detail": "All links are sent"}, status=status.HTTP_200_OK)
 
     def get_order_item_links(self, order_item: OrderItem) -> list[DownloadLink]:

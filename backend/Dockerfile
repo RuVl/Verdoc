@@ -1,4 +1,4 @@
-FROM python:3.13
+FROM python:3.13-slim
 LABEL authors="RuVl_13"
 
 # Set enviroment variables
@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Install cron
-RUN apt-get update && apt-get install -y cron
+RUN apt-get update && apt-get -y install cron && apt-get -y autoremove
 
 # Create the cronjob's log file
 RUN touch /var/log/cron.log

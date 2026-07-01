@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.sites.models import Site
 from django.db import models
 from django.db.transaction import atomic
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
@@ -146,12 +147,12 @@ class DownloadLink(models.Model):
         self.updated_at = timezone.now()
         self.save()
 
-    def get_link(self):
+    def get_link(self, request: HttpRequest | None):
         relative_path = reverse(
             "download-file", args=[self.order_item.order.user_email, self.uuid]
         )
         scheme = settings.SITE_SCHEME
-        domain = Site.objects.get_current().domain
+        domain = Site.objects.get_current(request).domain
         return f"{scheme}://{domain}{relative_path}"
 
 

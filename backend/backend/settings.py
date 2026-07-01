@@ -76,7 +76,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 
 # Site settings
-SITE_ID = 1
+# SITE_ID = 1
 SITE_SCHEME = "https"  # Uses to build absolute url
 
 LOGGING = {
@@ -180,6 +180,7 @@ OPEN_EXCHANGE_RATES_APP_ID = env("OPENEXCHANGERATES_APP_ID")
 
 # Plisio token
 PLISIO_SECRET_KEY = env("PLISIO_SECRET_KEY")
+MIRROR_PLISIO_SECRET_KEY = env("MIRROR_PLISIO_SECRET_KEY")
 
 # Email config
 EMAIL_CONFIG = env.email(

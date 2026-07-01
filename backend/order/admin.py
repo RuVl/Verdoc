@@ -124,6 +124,15 @@ class DownloadLinkAdmin(admin.ModelAdmin):
     search_fields = ("order_item__order__user_email", "passport_file__passport__name")
     actions = None  # Disable any actions
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.request = None
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        self.request = request
+        return qs
+
     @admin.display(boolean=True, description="Valid")
     def is_valid(self, obj: DownloadLink):
         return not obj.is_expired()
@@ -131,7 +140,7 @@ class DownloadLinkAdmin(admin.ModelAdmin):
     @admin.display(description="Download link")
     def link(self, obj: DownloadLink):
         return format_html(
-            "<a href='{url}'>{text}</a>", url=obj.get_link(), text=obj.uuid
+            "<a href='{url}'>{text}</a>", url=obj.get_link(self.request), text=obj.uuid
         )
 
     def has_add_permission(self, request):

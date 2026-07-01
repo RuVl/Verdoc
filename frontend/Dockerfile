@@ -36,7 +36,8 @@ RUN apt-get update && \
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 
 # Copy nginx template
-COPY ./nginx/verdoc.conf.template /etc/nginx/templates/verdoc.conf.template
+COPY nginx/site.conf.template /etc/nginx/templates/verif-docs.conf.template
+COPY nginx/mirror.conf.template /etc/nginx/templates/photo-scan.conf.template
 
 # Copy SSL certificates
 COPY ./nginx/ssl/ /etc/ssl/

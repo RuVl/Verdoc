@@ -62,7 +62,7 @@ services:
       - ./backend/logs:/app/logs
     env_file:
       - backend/.env
-      - postgres/.env  # For db connection
+      - postgres/.env
     expose:
       - 8000
     networks:
@@ -72,3 +72,23 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Reserve SMTP-relay with DKIM (postfix + opendkim)
+  # How to run: docker compose --profile mail up -d mail
+  # and in backend/.env: EMAIL_URL=smtp://mail:587
+  mail:
+    image: boky/postfix:v5.1.0-alpine
+    restart: unless-stopped
+    hostname: mail.photo-scan.store
+    profiles:
+      - mail
+    environment:
+      ALLOWED_SENDER_DOMAINS: photo-scan.store
+      DKIM_SELECTOR: mail
+      POSTFIX_myhostname: mail.photo-scan.store
+      POSTFIX_smtp_tls_security_level: may
+    volumes:
+      # Opendkim private key (/etc/opendkim/keys/<domain>.private)
+      - ./secrets/opendkim/photo-scan.store.private:/etc/opendkim/keys/photo-scan.store.private:ro
+    networks:
+      - verdoc

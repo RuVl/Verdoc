@@ -10,10 +10,6 @@ networks:
   verdoc:
     driver: bridge
     name: verdoc
-    ipam:
-      config:
-        - subnet: 172.18.0.0/16 # for postfix and opendkim trust
-          gateway: 172.18.0.1
 
 services:
   frontend-nginx:

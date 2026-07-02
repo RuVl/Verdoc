@@ -13,16 +13,21 @@
 #   make up     — весь стек в docker
 #   make help   — полный список целей
 
-COMPOSE   ?= docker compose
-UV        ?= uv
-RUFF      ?= uvx ruff@0.15.12
-PRECOMMIT ?= uvx pre-commit
+COMPOSE     ?= docker compose
+COMPOSE_DEV ?= docker compose -f docker-compose.dev.yaml
+UV          ?= uv
+RUFF        ?= uvx ruff@0.15.12
+PRECOMMIT   ?= uvx pre-commit
 
 # Пути для ruff (со своим [tool.ruff] в backend/pyproject.toml).
 RUFF_PATHS ?= backend
 
 # Django manage.py внутри контейнера backend.
 MANAGE ?= $(COMPOSE) exec backend uv run python manage.py
+
+# Django manage.py ЛОКАЛЬНО (backend вне контейнера): backend/.env + оверрайды dev.env.
+# Требует поднятую dev-инфраструктуру (make dev-infra) и заполненный dev.env.
+MANAGE_DEV ?= cd backend && $(UV) run --env-file .env --env-file dev.env python manage.py
 
 # Параметры БД для локальных команд (переопределяются: make db-dump PG_USER=…).
 PG_USER ?= user
@@ -55,8 +60,8 @@ check-deps: ## Проверить наличие uv и docker compose
 
 .PHONY: env
 env: ## Создать .env из *.dist там, где их нет (backend / frontend / postgres)
-	@$(UV) run --no-project python -c "import os, shutil; [(shutil.copyfile(t+'.dist', t), print('created', t)) for t in ('backend/.env','frontend/.env','postgres/.env') if os.path.isfile(t+'.dist') and not os.path.isfile(t)]"
-	@echo "Заполните .env файлы (backend / frontend / postgres)!"
+	@$(UV) run --no-project python -c "import os, shutil; [(shutil.copyfile(t+'.dist', t), print('created', t)) for t in ('backend/.env','frontend/.env','postgres/.env','backend/dev.env') if os.path.isfile(t+'.dist') and not os.path.isfile(t)]"
+	@echo "Заполните .env файлы (backend / frontend / postgres) и dev.env для локальной разработки!"
 
 # --- Установка зависимостей -------------------------------------------------
 
@@ -101,6 +106,32 @@ logs-db: ## Логи postgres
 .PHONY: logs-nginx
 logs-nginx: ## Логи frontend-nginx
 	$(COMPOSE) logs -f frontend-nginx
+
+# --- Локальная разработка (backend/frontend локально, postgres в docker) -----
+
+.PHONY: dev-infra
+dev-infra: ## Поднять dev-инфраструктуру (только postgres на localhost:5432)
+	$(COMPOSE_DEV) up -d --build
+
+.PHONY: dev-infra-down
+dev-infra-down: ## Остановить dev-инфраструктуру
+	$(COMPOSE_DEV) down
+
+.PHONY: dev-migrate
+dev-migrate: ## Миграции локальным backend в dev-БД
+	$(MANAGE_DEV) migrate
+
+.PHONY: dev-backend
+dev-backend: ## Запустить backend локально (runserver 0.0.0.0:8000)
+	$(MANAGE_DEV) runserver 0.0.0.0:8000
+
+.PHONY: dev-superuser
+dev-superuser: ## Создать суперпользователя в dev-БД
+	$(MANAGE_DEV) createsuperuser
+
+.PHONY: dev-shell
+dev-shell: ## Django shell локально (dev-БД)
+	$(MANAGE_DEV) shell
 
 # --- Django (внутри контейнера backend) -------------------------------------
 

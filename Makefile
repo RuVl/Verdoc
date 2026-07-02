@@ -41,9 +41,11 @@ MANAGE ?= $(COMPOSE) exec backend uv run python manage.py
 # Требует поднятую dev-инфраструктуру (make dev-infra) и заполненный dev.env.
 MANAGE_DEV ?= cd backend && $(UV) run --env-file .env --env-file dev.env python manage.py
 
-# Параметры БД для локальных команд (переопределяются: make db-dump PG_USER=…).
-PG_USER ?= user
-PG_DB   ?= database
+# Параметры БД для локальных команд: по умолчанию берём POSTGRES_USER/POSTGRES_DB
+# из postgres/.env (единый источник истины), переопределяются: make db-dump PG_USER=…
+# Читаем через Python (splitlines корректно срезает CRLF), лениво — только когда переменная нужна.
+PG_USER ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.Path('postgres/.env'); vals=[l.split('=',1)[1].strip() for l in (p.read_text(encoding='utf-8').splitlines() if p.exists() else []) if l.startswith('POSTGRES_USER=')]; print(vals[0] if vals else 'user')")
+PG_DB   ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.Path('postgres/.env'); vals=[l.split('=',1)[1].strip() for l in (p.read_text(encoding='utf-8').splitlines() if p.exists() else []) if l.startswith('POSTGRES_DB=')]; print(vals[0] if vals else 'database')")
 DUMP    ?= backups/dump.sql
 m       ?=
 FORCE   ?=

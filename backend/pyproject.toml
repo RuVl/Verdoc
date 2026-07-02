@@ -22,6 +22,7 @@ dependencies = [
 target-version = "py313"
 line-length = 120
 exclude = [".venv"]
+extend-exclude = ["best_db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W", "C4", "SIM"]

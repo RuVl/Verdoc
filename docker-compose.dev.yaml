@@ -1,18 +1,6 @@
-# Инфраструктура для локальной разработки.
-#
-# Поднимает ТОЛЬКО postgres и публикует его на хост (localhost:5432), чтобы
-# локально запущенный backend (`make dev-backend`) и frontend (`make front-dev`)
-# ходили в БД напрямую. nginx и backend-контейнеры здесь НЕ поднимаются — это
-# обходит проблему rootless podman с портами 80/443.
-#
-#   make dev-infra        — поднять postgres
-#   make dev-migrate      — миграции локальным backend в эту БД
-#   make dev-backend      — runserver локально
-#   make front-dev        — vite локально
-#
-# Том — ОБЩИЙ с прод-стеком (verdoc_postgres), чтобы на сервере тестировать на тех же
-# данных. ВНИМАНИЕ: не поднимайте dev-postgres и прод-postgres одновременно — два
-# инстанса на одном каталоге данных повредят БД. Останавливайте один перед стартом другого.
+# Local-dev infra: postgres only, published to localhost:5432 for the host backend/frontend.
+# No nginx/backend containers here (sidesteps rootless-podman 80/443). See `make dev-*`.
+# Shares the verdoc_postgres volume with the prod stack - never run both postgres at once.
 
 volumes:
   postgres_volume:

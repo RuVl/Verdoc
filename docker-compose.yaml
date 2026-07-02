@@ -67,8 +67,6 @@ services:
       - 8000
     networks:
       - verdoc
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

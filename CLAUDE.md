@@ -11,7 +11,7 @@ Verdoc is a digital-goods storefront: customers buy passport files, pay via **Pl
 **Prefer `make` targets over hand-rolled commands.** The root `Makefile` wraps everything in a cross-platform way (recipes are just `cd` + `uv` / `uvx` / `docker compose` / `npm`; file ops go through `uv run --no-project python`). Run `make help` for the full list. The project is **docker-first**: `manage.py` and `psql` targets `exec` into the running stack (`docker-compose.yaml` builds `frontend-nginx` on 80/443, `backend` gunicorn on 8000, `postgres`), so bring it up first.
 
 ```bash
-make init          # full bootstrap: check-deps → env → install → pre-commit → up → migrate
+make init          # full bootstrap: check-deps → env → install → pre-commit → dev-infra → dev-migrate (NOT `up`)
 make env           # create .env from *.dist (backend / frontend / postgres / backend/dev.env) where missing
 make install       # backend venv (uv sync); make front-install for the frontend
 

@@ -32,6 +32,7 @@ services:
     build:
       context: ./postgres
       dockerfile: Dockerfile
+    container_name: verdoc_postgres
     restart: unless-stopped
     volumes:
       - postgres_volume:/var/lib/postgresql/data

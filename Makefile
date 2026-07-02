@@ -1,16 +1,28 @@
 # Единые команды разработки/деплоя Verdoc.
 #
-# Проект docker-first: Django-бэкенд и БД живут в контейнерах, поэтому команды
-# manage.py / psql выполняются через `docker compose exec` в работающем стеке
-# (сначала `make up`). Локально через uv ставятся только зависимости бэкенда и
-# запускаются линтеры.
+# Два независимых сценария (один не переходит в другой автоматически):
+#
+#   1) Полный стек в docker (прод-подобный, с nginx):
+#        make up        — поднять весь стек (backend + postgres + frontend-nginx)
+#        make migrate   — миграции ВНУТРИ контейнера backend
+#      manage.py / psql выполняются через `docker compose exec` в этом стеке.
+#
+#   2) Локальная разработка (backend/frontend на хосте, только postgres в docker —
+#      см. docker-compose.dev.yaml; нужен из-за rootless-podman и портов 80/443):
+#        make init          — с нуля: deps → .env → install → pre-commit →
+#                              dev-postgres → миграции (НЕ поднимает `up`!)
+#        make dev-backend   — runserver на хосте (:8000)
+#        make front-dev     — vite dev-сервер (:5173)
+#
+# Оба сценария используют один и тот же volume verdoc_postgres (общие данные,
+# осознанно), но это РАЗНЫЕ контейнеры postgres — не поднимайте оба одновременно.
 #
 # Кроссплатформенно (Linux / Windows): рецепты — это только `cd` + вызов бинарника
 # (uv / uvx / docker compose / npm). Файловые операции делает Python через
 # `uv run --no-project`, поэтому grep/sed/find не нужны.
 #
-#   make init   — подготовить окружение с нуля
-#   make up     — весь стек в docker
+#   make init   — локальная разработка с нуля (сценарий 2)
+#   make up     — весь стек в docker (сценарий 1)
 #   make help   — полный список целей
 
 COMPOSE     ?= docker compose
@@ -34,6 +46,8 @@ PG_USER ?= user
 PG_DB   ?= database
 DUMP    ?= backups/dump.sql
 m       ?=
+FORCE   ?=
+FRONT   ?=
 
 .DEFAULT_GOAL := help
 
@@ -44,14 +58,14 @@ help: ## Показать список целей
 # --- Подготовка окружения ---------------------------------------------------
 
 .PHONY: init
-init: ## Подготовить окружение с нуля (deps → .env → install → pre-commit → up → migrate)
+init: ## Подготовить окружение с нуля (deps → .env → install → pre-commit → dev-infra → dev-migrate)
 	$(MAKE) check-deps
 	$(MAKE) env
 	$(MAKE) install
 	$(MAKE) pre-commit-install
-	$(MAKE) up
-	$(MAKE) migrate
-	@echo "OK: окружение готово. Стек поднят: make ps"
+	$(MAKE) dev-infra
+	$(MAKE) dev-migrate
+	@echo "OK: dev-postgres поднят, миграции применены. Дальше: make dev-backend (backend :8000) и make front-dev (frontend :5173). Статус dev-postgres: docker compose -f docker-compose.dev.yaml ps"
 
 .PHONY: check-deps
 check-deps: ## Проверить наличие uv и docker compose
@@ -107,6 +121,21 @@ logs-db: ## Логи postgres
 logs-nginx: ## Логи frontend-nginx
 	$(COMPOSE) logs -f frontend-nginx
 
+# --- Резервный SMTP-релей с DKIM (boky/postfix, профиль mail) ----------------
+# Нужен ключ secrets/opendkim/photo-scan.store.private и EMAIL_URL=smtp://mail:587
+
+.PHONY: mail-up
+mail-up: ## Поднять резервный mail-релей (профиль mail)
+	$(COMPOSE) --profile mail up -d mail
+
+.PHONY: mail-down
+mail-down: ## Остановить mail-релей
+	$(COMPOSE) --profile mail stop mail
+
+.PHONY: logs-mail
+logs-mail: ## Логи mail-релея
+	$(COMPOSE) --profile mail logs -f mail
+
 # --- Локальная разработка (backend/frontend локально, postgres в docker) -----
 
 .PHONY: dev-infra
@@ -117,9 +146,20 @@ dev-infra: ## Поднять dev-инфраструктуру (только post
 dev-infra-down: ## Остановить dev-инфраструктуру
 	$(COMPOSE_DEV) down
 
+.PHONY: dev-reset
+dev-reset: ## Пересоздать контейнер dev-postgres (volume verdoc_postgres НЕ трогает - общий с прод)
+	@echo "Пересоздаю контейнер dev-postgres (down + up). Данные в volume verdoc_postgres НЕ удаляются - он общий с прод-стеком."
+	$(COMPOSE_DEV) down
+	$(COMPOSE_DEV) up -d --build
+	@echo "OK: dev-postgres пересоздан. Для полного удаления данных (ОПАСНО - общие данные с прод!) вручную: docker compose -f docker-compose.dev.yaml down -v"
+
 .PHONY: dev-migrate
 dev-migrate: ## Миграции локальным backend в dev-БД
 	$(MANAGE_DEV) migrate
+
+.PHONY: dev-showmigrations
+dev-showmigrations: ## Статус миграций локальным backend (dev-БД) - проверить перед migrate
+	$(MANAGE_DEV) showmigrations
 
 .PHONY: dev-backend
 dev-backend: ## Запустить backend локально (runserver 0.0.0.0:8000)
@@ -138,6 +178,10 @@ dev-shell: ## Django shell локально (dev-БД)
 .PHONY: migrate
 migrate: ## Применить миграции
 	$(MANAGE) migrate
+
+.PHONY: showmigrations
+showmigrations: ## Статус миграций в контейнере backend - проверить перед migrate
+	$(MANAGE) showmigrations
 
 .PHONY: makemigrations
 makemigrations: ## Создать миграции: make makemigrations m="order passport"
@@ -173,9 +217,15 @@ db-dump: ## Дамп БД в файл (DUMP=backups/dump.sql по умолчан
 	@echo "dumped -> $(DUMP)"
 
 .PHONY: db-restore
-db-restore: ## Восстановить БД из файла: make db-restore DUMP=backups/x.sql
+db-restore: ## Восстановить БД из файла (требует FORCE=1): make db-restore DUMP=backups/x.sql FORCE=1
+ifneq ($(FORCE),1)
+	@echo "ОПАСНО: db-restore перезапишет данные в живой БД дампом $(DUMP)."
+	@echo "Если уверены - повторите с FORCE=1: make db-restore DUMP=$(DUMP) FORCE=1"
+	@exit 1
+else
 	$(COMPOSE) exec -T postgres psql -U $(PG_USER) -d $(PG_DB) < $(DUMP)
 	@echo "restored <- $(DUMP)"
+endif
 
 .PHONY: psql
 psql: ## Интерактивный psql в контейнере
@@ -214,6 +264,10 @@ format: ## ruff format + автофиксы
 # --- Очистка ----------------------------------------------------------------
 
 .PHONY: clean
-clean: ## Удалить кэши (pycache, ruff)
+clean: ## Удалить кэши (pycache, ruff); FRONT=1 - также frontend/node_modules и frontend/dist
 	@$(UV) run --no-project python -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for n in ('__pycache__','.ruff_cache') for p in pathlib.Path('.').rglob(n)]"
+ifeq ($(FRONT),1)
+	@$(UV) run --no-project python -c "import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('frontend/node_modules', 'frontend/dist')]"
+	@echo "OK: node_modules и dist фронтенда удалены"
+endif
 	@echo "OK: кэши очищены"

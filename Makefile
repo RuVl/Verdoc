@@ -38,7 +38,8 @@ RUFF_PATHS ?= backend
 MANAGE ?= $(COMPOSE) exec backend uv run python manage.py
 
 # Django manage.py ЛОКАЛЬНО (backend вне контейнера): backend/.env + оверрайды dev.env.
-# Требует поднятую dev-инфраструктуру (make dev-infra) и заполненный dev.env.
+# dev-инфраструктура поднимается автоматически: dev-* цели зависят от dev-infra
+# (idempotent `up --wait` - ждёт healthcheck postgres). Требует заполненный dev.env.
 MANAGE_DEV ?= cd backend && $(UV) run --env-file .env --env-file dev.env python manage.py
 
 # Параметры БД для локальных команд: по умолчанию берём POSTGRES_USER/POSTGRES_DB
@@ -65,7 +66,6 @@ init: ## Подготовить окружение с нуля (deps → .env �
 	$(MAKE) env
 	$(MAKE) install
 	$(MAKE) pre-commit-install
-	$(MAKE) dev-infra
 	$(MAKE) dev-migrate
 	@echo "OK: dev-postgres поднят, миграции применены. Дальше: make dev-backend (backend :8000) и make front-dev (frontend :5173). Статус dev-postgres: docker compose -f docker-compose.dev.yaml ps"
 
@@ -141,8 +141,8 @@ logs-mail: ## Логи mail-релея
 # --- Локальная разработка (backend/frontend локально, postgres в docker) -----
 
 .PHONY: dev-infra
-dev-infra: ## Поднять dev-инфраструктуру (только postgres на localhost:5432)
-	$(COMPOSE_DEV) up -d --build
+dev-infra: ## Поднять dev-инфраструктуру (postgres на localhost:5432, ждёт healthy; no-op если уже поднята)
+	$(COMPOSE_DEV) up -d --build --wait
 
 .PHONY: dev-infra-down
 dev-infra-down: ## Остановить dev-инфраструктуру
@@ -152,27 +152,27 @@ dev-infra-down: ## Остановить dev-инфраструктуру
 dev-reset: ## Пересоздать контейнер dev-postgres (volume verdoc_postgres НЕ трогает - общий с прод)
 	@echo "Пересоздаю контейнер dev-postgres (down + up). Данные в volume verdoc_postgres НЕ удаляются - он общий с прод-стеком."
 	$(COMPOSE_DEV) down
-	$(COMPOSE_DEV) up -d --build
+	$(COMPOSE_DEV) up -d --build --wait
 	@echo "OK: dev-postgres пересоздан. Для полного удаления данных (ОПАСНО - общие данные с прод!) вручную: docker compose -f docker-compose.dev.yaml down -v"
 
 .PHONY: dev-migrate
-dev-migrate: ## Миграции локальным backend в dev-БД
+dev-migrate: dev-infra ## Миграции локальным backend в dev-БД
 	$(MANAGE_DEV) migrate
 
 .PHONY: dev-showmigrations
-dev-showmigrations: ## Статус миграций локальным backend (dev-БД) - проверить перед migrate
+dev-showmigrations: dev-infra ## Статус миграций локальным backend (dev-БД) - проверить перед migrate
 	$(MANAGE_DEV) showmigrations
 
 .PHONY: dev-backend
-dev-backend: ## Запустить backend локально (runserver 0.0.0.0:8000)
+dev-backend: dev-infra ## Запустить backend локально (runserver 0.0.0.0:8000)
 	$(MANAGE_DEV) runserver 0.0.0.0:8000
 
 .PHONY: dev-superuser
-dev-superuser: ## Создать суперпользователя в dev-БД
+dev-superuser: dev-infra ## Создать суперпользователя в dev-БД
 	$(MANAGE_DEV) createsuperuser
 
 .PHONY: dev-shell
-dev-shell: ## Django shell локально (dev-БД)
+dev-shell: dev-infra ## Django shell локально (dev-БД)
 	$(MANAGE_DEV) shell
 
 # --- Django (внутри контейнера backend) -------------------------------------

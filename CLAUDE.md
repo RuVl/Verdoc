@@ -87,7 +87,7 @@ Vue 3 + Pinia (with `pinia-plugin-persistedstate` for the cart), Vue Router, axi
 ## Local development
 
 For day-to-day work you don't need the full docker stack (and under rootless podman `frontend-nginx` can't bind 80/443). Instead run the app processes on the host and keep only postgres in docker:
-- `docker-compose.dev.yaml` runs **postgres only**, publishing it to `localhost:5432`. It shares the **same volume (`verdoc_postgres`)** as the prod stack - so on the server you test against the real data. **Do not run the dev and prod postgres containers at the same time** (two instances on one data dir corrupt the DB).
+- `docker-compose.dev.yaml` runs **postgres only**, publishing it to `localhost:5432`, using a volume named `verdoc_postgres`. **This only overlaps with real prod data when you run it directly on the production server itself** - prod (the full stack, including its DB) lives on a separate remote server, not on a developer's local machine, so a local checkout's `verdoc_postgres` volume is its own independent, empty volume with no prod data in it. The "don't run both at once" rule below only matters when both stacks are on the *same* host (e.g. you're doing this on the prod server) - two instances on one data dir corrupt the DB.
 - `backend/dev.env` overrides `backend/.env` for the host backend (see Environment above): `DEBUG=True`, `DATABASE_URL` → `localhost:5432`, `EMAIL_URL=consolemail://` (dev mail prints to the backend console).
 - Typical loop: `make dev-infra` → `make dev-migrate` → `make dev-backend` (host, :8000) + `make front-dev` (vite, :5173). No nginx locally.
 

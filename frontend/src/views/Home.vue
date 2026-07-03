@@ -71,8 +71,10 @@ function add2cart(passport) {
       <template #default="{element: passport}">
         <CountryFlag :country="country.code" class="flag-icon item"/>
         <span class="product-name">{{ passport.name }}</span>
-        <CounterShow class="counter">{{ passport.max_quantity }} {{ $t('products.count') }}</CounterShow>
-        <CounterShow class="counter">{{ passport.formattedPrice() }}</CounterShow>
+        <span class="counters">
+          <CounterShow>{{ passport.max_quantity }} {{ $t('products.count') }}</CounterShow>
+          <CounterShow>{{ passport.formattedPrice() }}</CounterShow>
+        </span>
         <CommonButton class="buy-now-btn" @click="selectedPassport=passport; instant_buy=true">
           <span class="longer">{{ $t('buttons.buy_now') }}</span>
           <span class="shorter">{{ $t('buttons.buy') }}</span>
@@ -194,22 +196,40 @@ function add2cart(passport) {
     margin-bottom: 0;
   }
 
+  // single-row grid: name column shrinks, no fixed widths
+  :deep(.products-list > ul > li) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 10px 25px;
+  }
+
   .product-name {
-    text-wrap: pretty;
-    width: 635px;
-    margin-right: 20px;
+    // robustly override the `text-wrap: nowrap` inherited from ListView's li;
+    // white-space is universally supported, unlike `text-wrap: pretty` alone
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-wrap: pretty; // progressive enhancement for nicer line breaks
+  }
+
+  .counters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    min-width: 0;
+    gap: 25px;
   }
 
   .buy-now-btn {
-    margin-left: auto;
-
     .shorter {
       display: none;
     }
   }
 
   .add2cart-btn {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
     text-decoration: none;
     line-height: 0;
 
@@ -274,39 +294,40 @@ function add2cart(passport) {
   }
 }
 
-@media screen and (max-width: 1024px) {
+// phone layout per design mockup: name + buy on top, counters + cart below
+@media screen and (max-width: 768px) {
   .product-table {
-    --buy-btn-size: 110px;
-
-    .product-name {
-      width: fit-content;
-      flex: calc(100% - var(--buy-btn-size) * 2);
-    }
-
-    .buy-now-btn {
-      box-sizing: content-box;
-      width: var(--buy-btn-size);
-    }
-
-    .counter, .add2cart-btn {
-      order: 1;
-    }
-
-    .add2cart-btn {
-      margin-left: auto;
-      padding-right: 15px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 10px;
-
-      span {
-        display: inline;
-      }
+    :deep(.products-list > ul > li) {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "name buy"
+        "counters cart";
     }
 
     .item.flag-icon {
       display: none;
+    }
+
+    .product-name {
+      grid-area: name;
+    }
+
+    .counters {
+      grid-area: counters;
+      gap: 10px;
+    }
+
+    .buy-now-btn {
+      grid-area: buy;
+    }
+
+    .add2cart-btn {
+      grid-area: cart;
+      justify-self: end;
+
+      span {
+        display: inline;
+      }
     }
   }
 }
@@ -346,10 +367,20 @@ function add2cart(passport) {
   }
 
   .product-table {
-    --buy-btn-size: 70px;
+    :deep(.products-list > ul > li) {
+      gap: 10px 15px;
+    }
 
     .controls .currency-switch-wrapper {
       font-size: 0;
+    }
+
+    .counters {
+      gap: 5px;
+
+      .counter {
+        min-width: 80px;
+      }
     }
 
     .buy-now-btn {
@@ -358,14 +389,6 @@ function add2cart(passport) {
       }
 
       .longer {
-        display: none;
-      }
-    }
-
-    .add2cart-btn {
-      padding-right: 20px;
-
-      span {
         display: none;
       }
     }

@@ -13,7 +13,7 @@ Verdoc is a digital-goods storefront: customers buy passport files, pay via **Pl
 ```bash
 make init          # full bootstrap: check-deps → env → install → pre-commit → dev-infra → dev-migrate (NOT `up`)
 make env           # create .env from *.dist (backend / frontend / postgres / backend/dev.env) where missing
-make install       # backend venv (uv sync); make front-install for the frontend
+make install       # backend + frontend (make install-backend / make install-frontend for one)
 
 make up            # full stack in docker (build + run)
 make down          # stop; make ps / make logs[-backend|-db|-nginx]
@@ -23,18 +23,28 @@ make down          # stop; make ps / make logs[-backend|-db|-nginx]
 make dev-infra     # postgres only (docker-compose.dev.yaml), published to localhost:5432
 make dev-migrate   # migrate with the host backend against the dev db
 make dev-backend   # runserver 0.0.0.0:8000 on the host
-make dev-superuser / make dev-shell / make dev-infra-down
+make dev-frontend  # vite dev server on 0.0.0.0:5173 (host); make dev-frontend-build for prod build
+make dev-superuser / make dev-infra-down
+make dev-reset     # recreate the dev-postgres container (keeps the verdoc_postgres volume/data)
+
+# Any manage.py command - generic escape hatch (custom or built-in). Pass the args via c=.
+make manage c="showmigrations"            # inside the backend container
+make dev-manage c="seed_testdata --flush" # on the host against the dev db (auto-brings up dev-infra)
+# The named targets below are just shortcuts for common commands - use `manage`/`dev-manage` for the rest.
 
 # Django (run inside the backend container) - apps are: order, passport
-make migrate
+make migrate       # make manage c=showmigrations to inspect first
 make makemigrations m="order passport"
 make superuser
-make update-rates  # fetch currency rates (djmoney); required before first orders
+make update-rates  # fetch currency rates (djmoney); required before first orders and for currency switch
 make expire        # release reservations on expired PENDING orders (also cron, 00:05 daily)
 
-# Frontend
-make front-dev     # vite dev server on 0.0.0.0:5173
-make front-build   # production build to dist/
+# Seed test catalog for manual UI testing (passport `seed_testdata` command; no dedicated make target):
+#   make dev-manage c="seed_testdata --flush"   (host/dev)   or   make manage c="seed_testdata --flush" (container)
+# 8 countries x 5-7 passports covering edge cases (long/unbreakable names, 0.99-12345.67 prices,
+# 1/999 stock, mixed USD/RUB, one hidden quantity=0 row). --flush wipes the catalog first.
+# Note: it seeds PassportFile rows with placeholder paths (no real files) - downloads won't work,
+# and needs exchange Rate rows to exist (make update-rates) or RUB prices render as NaN.
 
 # DB
 make db-dump [DUMP=backups/dump.sql] / make db-restore DUMP=… / make psql
@@ -51,8 +61,9 @@ make pre-commit-install / make pre-commit
 
 - Each service reads its own `.env` (copy from the `.env.dist` next to it): `backend/`, `frontend/`, `postgres/`. The backend also loads `postgres/.env` for the DB connection.
 - **Local development** overrides live in `backend/dev.env` (copy from `backend/dev.env.dist`). It's layered on top of `backend/.env` when running the host backend (`uv run --env-file .env --env-file dev.env`), because `settings.py` reads only `os.environ` (no `read_env()`). It points `DATABASE_URL` at `localhost:5432` and sets `EMAIL_URL=consolemail://`. Its DB user/password/name **must match `postgres/.env`**.
+- The frontend has the same idea via Vite's mode files: `frontend/.env.development` (copy from `frontend/.env.development.dist`) is layered on top of `frontend/.env` **only for `npm run dev`** (mode `development`); `vite build` (mode `production`) keeps using `frontend/.env`. It points `VITE_API_URL` at the host backend (`http://localhost:8000/api`) so the dev server hits `make dev-backend` instead of the prod domain. `make env` creates it; the real file is gitignored (the `.env.development.dist` template stays tracked).
 - Settings use `django-environ`. Key vars: `DATABASE_URL`, `EMAIL_URL`, `PLISIO_SECRET_KEY`, `MIRROR_PLISIO_SECRET_KEY`, `OPENEXCHANGERATES_APP_ID`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`.
-- Frontend build injects `VITE_API_URL` as the compile-time constant `__API_URL__` (see `vite.config.js`); the axios client in `src/api/index.js` uses Django's CSRF cookie/header.
+- Frontend build injects `VITE_API_URL` as the compile-time constant `__API_URL__` (see `vite.config.js`); the axios client in `src/api/index.js` uses Django's CSRF cookie/header. Locally `frontend/.env.development` overrides it to the host backend (see above).
 - After first deploy, update the `django_site` row's domain to match your host (used to build absolute download URLs). `SITE_SCHEME = "https"`.
 
 ## Architecture
@@ -84,12 +95,17 @@ Both ends are bilingual (en/ru). Backend uses **django-modeltranslation** - tran
 ### Frontend
 Vue 3 + Pinia (with `pinia-plugin-persistedstate` for the cart), Vue Router, axios. Stores in `src/stores/` (`cart`, `currencies`, `order`, `settings`, `languages`) hold client state; currency switching is client-side using rates from `GET /api/exchange-rates/`.
 
+### Responsive layout
+Design mockups are the source of truth: `design/*.png` has a desktop and a `_mob` variant per page (e.g. `mainpage.png` / `mainpage_mob.png`). Match them when changing layout.
+- **Product table** (`views/Home.vue` + `components/ListView.vue`): the row is **CSS Grid**, not a `<table>` or flexbox. Wide screens use one row (`grid-template-columns` with `minmax(0, 1fr)` for the name so it shrinks - no fixed widths); `.product-name` needs `overflow-wrap: anywhere` so long unbreakable tokens can't cause horizontal overflow. At `<=768px` it switches to a 2-row `grid-template-areas` card (name + Buy on top, counters + cart below) per the mobile mockup; `<=480px` only tightens gaps and swaps the "Buy now"/"Buy" label. Breakpoints are `768` and `480` (`max-width`).
+- The `responsive-craft` skill (`/responsive-craft audit|build|preview`) is installed for responsive work. Verify visually across widths, not just at named breakpoints - drag from ~320px up and watch for horizontal overflow (a headless browser adds a ~15px scrollbar that real phones don't, so don't tune breakpoints to headless pixel measurements).
+
 ## Local development
 
 For day-to-day work you don't need the full docker stack (and under rootless podman `frontend-nginx` can't bind 80/443). Instead run the app processes on the host and keep only postgres in docker:
 - `docker-compose.dev.yaml` runs **postgres only**, publishing it to `localhost:5432`, using a volume named `verdoc_postgres`. **This only overlaps with real prod data when you run it directly on the production server itself** - prod (the full stack, including its DB) lives on a separate remote server, not on a developer's local machine, so a local checkout's `verdoc_postgres` volume is its own independent, empty volume with no prod data in it. The "don't run both at once" rule below only matters when both stacks are on the *same* host (e.g. you're doing this on the prod server) - two instances on one data dir corrupt the DB.
 - `backend/dev.env` overrides `backend/.env` for the host backend (see Environment above): `DEBUG=True`, `DATABASE_URL` → `localhost:5432`, `EMAIL_URL=consolemail://` (dev mail prints to the backend console).
-- Typical loop: `make dev-infra` → `make dev-migrate` → `make dev-backend` (host, :8000) + `make front-dev` (vite, :5173). No nginx locally.
+- Typical loop: `make dev-infra` → `make dev-migrate` → `make dev-backend` (host, :8000) + `make dev-frontend` (vite, :5173). No nginx locally. Seed a catalog once with `seed_testdata` (see Commands) so the storefront isn't empty.
 
 ## Conventions
 

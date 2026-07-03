@@ -4,6 +4,7 @@
     "buy": "Buy",
     "buy_now": "Buy now",
     "cart": "@:routes.cart",
+    "delete": "Delete",
     "go_back_home": "Go back home",
     "payment_method": "Choose a payment method",
     "send_links": "Send links",
@@ -12,6 +13,7 @@
   },
   "cart_view": {
     "cost": "Cost",
+    "cost_full": "Item cost",
     "empty": "Your shopping cart is empty!",
     "modal_window": {
       "choose_method": "Choose payment method",

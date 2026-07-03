@@ -13,6 +13,8 @@ node_modules/
 
 # Enviroment variables
 *.env
+# vite mode override (real file; .env.development.dist template stays tracked)
+frontend/.env.development
 
 # Secrets (DKIM private keys, etc.)
 secrets/

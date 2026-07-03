@@ -39,7 +39,7 @@ MANAGE ?= $(COMPOSE) exec backend uv run python manage.py
 
 # Django manage.py ЛОКАЛЬНО (backend вне контейнера): backend/.env + оверрайды dev.env.
 # dev-инфраструктура поднимается автоматически: dev-* цели зависят от dev-infra
-# (idempotent `up --wait` - ждёт healthcheck postgres). Требует заполненный dev.env.
+# (pg_isready, при неудаче - `up --wait` до healthy). Требует заполненный dev.env.
 MANAGE_DEV ?= cd backend && $(UV) run --env-file .env --env-file dev.env python manage.py
 
 # Параметры БД для локальных команд: по умолчанию берём POSTGRES_USER/POSTGRES_DB
@@ -49,6 +49,7 @@ PG_USER ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.P
 PG_DB   ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.Path('postgres/.env'); vals=[l.split('=',1)[1].strip() for l in (p.read_text(encoding='utf-8').splitlines() if p.exists() else []) if l.startswith('POSTGRES_DB=')]; print(vals[0] if vals else 'database')")
 DUMP    ?= backups/dump.sql
 m       ?=
+c       ?=
 FORCE   ?=
 FRONT   ?=
 
@@ -61,7 +62,7 @@ help: ## Показать список целей
 # --- Подготовка окружения ---------------------------------------------------
 
 .PHONY: init
-init: ## Подготовить окружение с нуля (deps → .env → install → pre-commit → dev-infra → dev-migrate)
+init: ## Подготовить окружение с нуля (deps → .env → install → pre-commit → dev-migrate)
 	$(MAKE) check-deps
 	$(MAKE) env
 	$(MAKE) install
@@ -76,17 +77,22 @@ check-deps: ## Проверить наличие uv и docker compose
 
 .PHONY: env
 env: ## Создать .env из *.dist там, где их нет (backend / frontend / postgres)
-	@$(UV) run --no-project python -c "import os, shutil; [(shutil.copyfile(t+'.dist', t), print('created', t)) for t in ('backend/.env','frontend/.env','postgres/.env','backend/dev.env') if os.path.isfile(t+'.dist') and not os.path.isfile(t)]"
+	@$(UV) run --no-project python -c "import os, shutil; [(shutil.copyfile(t+'.dist', t), print('created', t)) for t in ('backend/.env','frontend/.env','frontend/.env.development','postgres/.env','backend/dev.env') if os.path.isfile(t+'.dist') and not os.path.isfile(t)]"
 	@echo "Заполните .env файлы (backend / frontend / postgres) и dev.env для локальной разработки!"
 
 # --- Установка зависимостей -------------------------------------------------
 
 .PHONY: install
-install: ## venv бэкенда (uv sync)
+install: ## install frontend+backend
+	$(MAKE) install-backend
+	$(MAKE) install-frontend
+
+.PHONY: install-backend
+install-backend: ## venv бэкенда (uv sync)
 	cd backend && $(UV) sync
 
-.PHONY: front-install
-front-install: ## Зависимости фронтенда (npm install)
+.PHONY: install-frontend
+install-frontend: ## Зависимости фронтенда (npm install)
 	cd frontend && npm install
 
 # --- Docker -----------------------------------------------------------------
@@ -141,27 +147,27 @@ logs-mail: ## Логи mail-релея
 # --- Локальная разработка (backend/frontend локально, postgres в docker) -----
 
 .PHONY: dev-infra
-dev-infra: ## Поднять dev-инфраструктуру (postgres на localhost:5432, ждёт healthy; no-op если уже поднята)
-	$(COMPOSE_DEV) up -d --build --wait
+dev-infra: ## Поднять dev-инфраструктуру, если ещё не поднята (ждёт healthy)
+	$(COMPOSE_DEV) exec postgres pg_isready -U $(PG_USER) || $(COMPOSE_DEV) up -d --build --wait
 
 .PHONY: dev-infra-down
 dev-infra-down: ## Остановить dev-инфраструктуру
 	$(COMPOSE_DEV) down
 
 .PHONY: dev-reset
-dev-reset: ## Пересоздать контейнер dev-postgres (volume verdoc_postgres НЕ трогает - общий с прод)
-	@echo "Пересоздаю контейнер dev-postgres (down + up). Данные в volume verdoc_postgres НЕ удаляются - он общий с прод-стеком."
+dev-reset: ## Пересоздать контейнер dev-postgres (сохраняет volume verdoc_postgres)
+	@echo "Пересоздаю контейнер dev-postgres (down + up). Данные в volume verdoc_postgres НЕ удаляются."
 	$(COMPOSE_DEV) down
 	$(COMPOSE_DEV) up -d --build --wait
-	@echo "OK: dev-postgres пересоздан. Для полного удаления данных (ОПАСНО - общие данные с прод!) вручную: docker compose -f docker-compose.dev.yaml down -v"
+	@echo "OK: dev-postgres пересоздан."
+
+.PHONY: dev-manage
+dev-manage: dev-infra ## Произвольная manage.py команда локально (dev-БД): make dev-manage c="seed_testdata --flush"
+	$(MANAGE_DEV) $(c)
 
 .PHONY: dev-migrate
 dev-migrate: dev-infra ## Миграции локальным backend в dev-БД
 	$(MANAGE_DEV) migrate
-
-.PHONY: dev-showmigrations
-dev-showmigrations: dev-infra ## Статус миграций локальным backend (dev-БД) - проверить перед migrate
-	$(MANAGE_DEV) showmigrations
 
 .PHONY: dev-backend
 dev-backend: dev-infra ## Запустить backend локально (runserver 0.0.0.0:8000)
@@ -171,19 +177,15 @@ dev-backend: dev-infra ## Запустить backend локально (runserver
 dev-superuser: dev-infra ## Создать суперпользователя в dev-БД
 	$(MANAGE_DEV) createsuperuser
 
-.PHONY: dev-shell
-dev-shell: dev-infra ## Django shell локально (dev-БД)
-	$(MANAGE_DEV) shell
-
 # --- Django (внутри контейнера backend) -------------------------------------
+
+.PHONY: manage
+manage: ## Произвольная manage.py команда в контейнере: make manage c="showmigrations" / c="shell"
+	$(MANAGE) $(c)
 
 .PHONY: migrate
 migrate: ## Применить миграции
 	$(MANAGE) migrate
-
-.PHONY: showmigrations
-showmigrations: ## Статус миграций в контейнере backend - проверить перед migrate
-	$(MANAGE) showmigrations
 
 .PHONY: makemigrations
 makemigrations: ## Создать миграции: make makemigrations m="order passport"
@@ -196,10 +198,6 @@ collectstatic: ## Собрать статику
 .PHONY: superuser
 superuser: ## Создать суперпользователя
 	$(MANAGE) createsuperuser
-
-.PHONY: shell
-shell: ## Django shell
-	$(MANAGE) shell
 
 # --- Доменные команды -------------------------------------------------------
 
@@ -235,12 +233,12 @@ psql: ## Интерактивный psql в контейнере
 
 # --- Фронтенд ---------------------------------------------------------------
 
-.PHONY: front-dev
-front-dev: ## Vite dev-сервер (0.0.0.0:5173)
+.PHONY: dev-frontend
+dev-frontend: ## Vite dev-сервер (0.0.0.0:5173)
 	cd frontend && npm run dev
 
-.PHONY: front-build
-front-build: ## Production-сборка фронтенда
+.PHONY: dev-frontend-build
+dev-frontend-build: ## Production-сборка фронтенда
 	cd frontend && npm run build
 
 # --- Качество кода ----------------------------------------------------------

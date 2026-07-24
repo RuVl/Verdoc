@@ -8,7 +8,6 @@ design/
 # Virtual enviroment
 .venv/
 venv/
-.python-version
 node_modules/
 
 # Enviroment variables

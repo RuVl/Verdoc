@@ -1,4 +1,4 @@
-FROM postgres:16.2
+FROM docker.io/library/postgres:16.2
 
 # Install cron
 RUN apt-get update && apt-get install -y cron
@@ -19,4 +19,4 @@ COPY cronjob /etc/cron.d/backup-cron
 RUN crontab /etc/cron.d/backup-cron
 
 # Running cron in background and PostgreSQL in foreiground
-CMD service cron start && docker-entrypoint.sh postgres
+CMD ["bash", "-c", "service cron start && exec docker-entrypoint.sh postgres"]

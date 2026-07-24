@@ -3,14 +3,10 @@
 dev.env
 
 # virtual enviroment
-venv
+.venv/
 
 # Compiled files
 **/*.mo
 
 # Cache
 **/__pycache__/
-
-# Migrations
-**/migrations/*.py
-!**/migrations/__init__.py

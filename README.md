@@ -1,6 +1,7 @@
 # Verdoc
 
-This is a document purchase site built with Vue.js for the frontend and Django REST Framework (DRF) for the
+This is a purchase site built with Vue.js for the frontend and Django REST
+Framework (DRF) for the
 backend,
 with nginx handling proxying and serving in Docker containers.
 
@@ -19,29 +20,32 @@ with nginx handling proxying and serving in Docker containers.
     git clone https://github.com/your-username/verif-docs.git
     cd verif-docs
     ```
-2. **Environment Configuration** \
-   Set up the environment variables by copying the `.env.dist` files to `.env` files in the respective directories (`frontend`, `backend`, and
-   `postgres`) and changing them.
-3. **Build and Run Docker Containers**
-    ```bash
-    docker-compose up -d --build
-    ```
-4. **Initial Database Setup** \
-   After starting the containers, access the backend container and run the following commands:
-    ```bash
-    docker exec -it backend_container_name bash
-    python manage.py makemigrations <apps>
-    python manage.py migrate
-    ```
-5. **Update Site Configuration** \
+2. **Prepare environment files** \
+   `make env` copies every `*.env.dist` to `.env` where missing (`backend/`, `frontend/`,
+   `postgres/`, plus `backend/dev.env` for local dev). Fill them in afterwards.
+3. **Choose a workflow:**
+   - **Full stack in Docker** (production-like, includes nginx):
+     ```bash
+     make up        # build + run backend, postgres, frontend-nginx
+     make migrate   # apply migrations inside the backend container
+     ```
+   - **Local development** (backend/frontend on the host, only postgres in Docker -
+     avoids the rootless-podman 80/443 limitation):
+     ```bash
+     make init         # deps → .env → install → pre-commit → dev-postgres → migrate
+     make dev-backend  # runserver on the host (:8000)
+     make front-dev    # vite dev server (:5173)
+     ```
+   See `make help` for the full list of targets, or `CLAUDE.md` for the detailed command
+   reference.
+4. **Update Site Configuration** \
    Update the `django_site` table in the database to reflect your domain:
     ```postgresql
     UPDATE django_site SET domain='your-domain', name='human-readable name' WHERE id=1;
     ```
-6. **Create exchange rates** \
-   Get all rates by command:
+5. **Create exchange rates** \
    ```bash
-   python manage.py update_rates
+   make update-rates
    ```
 
 ### Features
@@ -51,7 +55,8 @@ with nginx handling proxying and serving in Docker containers.
    If the order is not completed within one hour, the reservation expires, and the products are made available again.
 
 2. **Payment and Download Links** \
-   Upon order creation, users are redirected to the payment site. After successful payment, download links are sent to the provided email.
+   Upon order creation, users are redirected to the payment site. After successful payment, download links are sent to
+   the provided email.
 
 3. **Currency Exchange** \
    To update the currency exchange rates, press the corresponding button in the Django admin panel.
@@ -90,7 +95,8 @@ with nginx handling proxying and serving in Docker containers.
 
 ## Contributing
 
-Feel free to fork the repository and submit pull requests. For major changes, please open an issue first to discuss what you would like to change.
+Feel free to fork the repository and submit pull requests. For major changes, please open an issue first to discuss what
+you would like to change.
 
 ### License
 

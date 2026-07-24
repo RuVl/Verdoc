@@ -1,6 +1,11 @@
 Dockerfile
 
-venv/
+.venv/
+
+# Cache
+**/__pycache__/
 
 .env.dist
 .env
+dev.env.dist
+dev.env

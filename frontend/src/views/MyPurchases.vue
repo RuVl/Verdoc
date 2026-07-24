@@ -29,7 +29,8 @@ async function sendLinks() {
     <template #title>{{ $t('routes.my_purchases') }}</template>
     <form class="get-files-form" method="post" @submit.prevent="sendLinks">
       <span>{{ $t('purchases.email.ask') }}:</span>
-      <pretty-input v-model="purchases_form.email" :placeholder="$t('purchases.email.placeholder')" name="email" type="email"/>
+      <pretty-input v-model="purchases_form.email" :placeholder="$t('purchases.email.placeholder')" name="email"
+                    type="email"/>
       <common-button tabindex="0">{{ $t('buttons.send_links') }}</common-button>
     </form>
   </ViewBlock>

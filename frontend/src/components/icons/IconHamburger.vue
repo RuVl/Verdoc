@@ -3,7 +3,8 @@ const is_active = defineModel('is_active', {type: Boolean, default: false});
 </script>
 
 <template>
-  <svg :class="{active: is_active}" viewbox="0 0 40 20" xmlns="http://www.w3.org/2000/svg" @click="is_active=!is_active">
+  <svg :class="{active: is_active}" viewbox="0 0 40 20" xmlns="http://www.w3.org/2000/svg"
+       @click="is_active=!is_active">
     <path class="top-line" d="M10,10 L40,10 Z"/>
     <path class="middle-line" d="M10,20 L40,20 Z"/>
     <path class="bottom-line" d="M10,30 L40,30 Z"/>

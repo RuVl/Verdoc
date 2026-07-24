@@ -2,35 +2,35 @@
 server {
   listen                  80;
   listen                  [::]:80;
-  server_name             www.verif-docs.com verif-docs.com;
+  server_name             www.${DOMAIN} ${DOMAIN};
 
-  return                  301 https://verif-docs.com$request_uri;
+  return                  301 https://${DOMAIN}$request_uri;
 }
 
 # Redirect www -> site (https)
 server {
   listen                  443 ssl;
   listen                  [::]:443 ssl;
-  server_name             www.verif-docs.com;
+  server_name             www.${DOMAIN};
 
   # SSL sertificates
-  ssl_certificate         /etc/ssl/verif-docs.crt;
-  ssl_certificate_key     /etc/ssl/verif-docs.key;
+  ssl_certificate         /etc/ssl/${DOMAIN}.crt;
+  ssl_certificate_key     /etc/ssl/${DOMAIN}.key;
 
-  return                  301 https://verif-docs.com$request_uri;
+  return                  301 https://${DOMAIN}$request_uri;
 }
 
 server {
   listen                  443 ssl default_server;
   listen                  [::]:443;
-  server_name             verif-docs.com;
+  server_name             ${DOMAIN};
 
   # SSL sertificates
-  ssl_certificate         /etc/ssl/verif-docs.crt;
-  ssl_certificate_key     /etc/ssl/verif-docs.key;
+  ssl_certificate         /etc/ssl/${DOMAIN}.crt;
+  ssl_certificate_key     /etc/ssl/${DOMAIN}.key;
 
   # Default headers
-  add_header            'Strict-Transport-Security' 'max-age=63072000; includeSubDomains; preload';
+  add_header              'Strict-Transport-Security' 'max-age=63072000; includeSubDomains; preload';
 
   # Default settings
   http2                   on;
@@ -40,7 +40,7 @@ server {
   charset                 utf-8;
   source_charset          utf-8;
 
-  set                     $project_home /usr/src/app/;
+  set                     $project_home /app/;
   root                    /usr/share/nginx/html;
   index                   index.html;
 

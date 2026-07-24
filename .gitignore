@@ -1,15 +1,23 @@
 # IDE folder
 .idea/
+.vscode/
 
 # Design folder
 design/
 
 # Virtual enviroment
-venv
-node_modules
+.venv/
+venv/
+.python-version
+node_modules/
 
 # Enviroment variables
-**/.env
+*.env
+# vite mode override (real file; .env.development.dist template stays tracked)
+frontend/.env.development
+
+# Secrets (DKIM private keys, etc.)
+secrets/
 
 # Logging files
 *.log

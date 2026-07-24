@@ -10,6 +10,7 @@ lerna-debug.log*
 # node js
 node_modules
 package-lock.json
+bun.lock
 
 .DS_Store
 dist

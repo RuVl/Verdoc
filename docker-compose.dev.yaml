@@ -1,0 +1,29 @@
+# Local-dev infra: postgres only, published to localhost:5432 for the host backend/frontend.
+# No nginx/backend containers here (sidesteps rootless-podman 80/443). See `make dev-*`.
+# Shares the verdoc_postgres volume with the prod stack (same data dir) - never run both
+# postgres containers at once, that will corrupt the data directory regardless of container
+# identity. container_name is distinct from docker-compose.yaml's postgres so `make up` and
+# `make dev-infra` no longer silently recreate/steal each other's container config.
+
+volumes:
+  postgres_volume:
+    name: verdoc_postgres
+
+services:
+  postgres:
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    container_name: verdoc_postgres
+    restart: unless-stopped
+    volumes:
+      - postgres_volume:/var/lib/postgresql/data
+    env_file: postgres/.env
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER
+      start_interval: 5s
+      interval: 15s
+      timeout: 5s
+      retries: 3

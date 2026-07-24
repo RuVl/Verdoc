@@ -10,10 +10,6 @@ networks:
   verdoc:
     driver: bridge
     name: verdoc
-    ipam:
-      config:
-        - subnet: 172.18.0.0/16 # for postfix and opendkim trust
-          gateway: 172.18.0.1
 
 services:
   frontend-nginx:
@@ -22,7 +18,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
-      - static_volume:/usr/src/app/static
+      - static_volume:/app/static
+    env_file: frontend/.env
     ports:
       - "80:80"
       - "443:443"
@@ -35,6 +32,7 @@ services:
     build:
       context: ./postgres
       dockerfile: Dockerfile
+    container_name: verdoc_postgres
     restart: unless-stopped
     volumes:
       - postgres_volume:/var/lib/postgresql/data
@@ -46,6 +44,7 @@ services:
       - verdoc
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER
+      start_interval: 5s
       interval: 15s
       timeout: 5s
       retries: 3
@@ -56,18 +55,36 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
-      - products_volume:/usr/src/app/products
-      - static_volume:/usr/src/app/static
-      - ./backend/logs:/usr/src/app/logs
+      - products_volume:/app/products
+      - static_volume:/app/static
+      - ./backend/logs:/app/logs
     env_file:
       - backend/.env
-      - postgres/.env  # For db connection
+      - postgres/.env
     expose:
       - 8000
     networks:
       - verdoc
-    extra_hosts:
-      host.docker.internal: host-gateway
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Reserve SMTP-relay with DKIM (postfix + opendkim)
+  # How to run: docker compose --profile mail up -d mail
+  # and in backend/.env: EMAIL_URL=smtp://mail:587
+  mail:
+    image: boky/postfix:v5.1.0-alpine
+    restart: unless-stopped
+    hostname: mail.photo-scan.store
+    profiles:
+      - mail
+    environment:
+      ALLOWED_SENDER_DOMAINS: photo-scan.store
+      DKIM_SELECTOR: mail
+      POSTFIX_myhostname: mail.photo-scan.store
+      POSTFIX_smtp_tls_security_level: may
+    volumes:
+      # Opendkim private key (/etc/opendkim/keys/<domain>.private)
+      - ./secrets/opendkim/photo-scan.store.private:/etc/opendkim/keys/photo-scan.store.private:ro
+    networks:
+      - verdoc

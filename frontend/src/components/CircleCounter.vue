@@ -25,6 +25,7 @@ defineProps({
   span {
     font-size: 13px;
     color: #fff;
+    vertical-align: center;
   }
 }
 </style>

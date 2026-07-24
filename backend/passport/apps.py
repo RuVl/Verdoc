@@ -6,5 +6,5 @@ class PassportConfig(AppConfig):
     name = "passport"
 
     def ready(self):
-        # noinspection PyUnresolvedReferences
-        pass  # Implicitly connect signal handlers decorated with @receiver
+        # Import signals so the @receiver handlers get connected.
+        from . import signals  # noqa: F401

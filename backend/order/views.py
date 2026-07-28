@@ -109,14 +109,28 @@ class PlisioCallbackView(APIView):
             )
 
         order = get_object_or_404(Order, id=data.get("order_number"))
-        self.update_order_status(order, data)
+        download_links = None
 
-        match order.status:
-            case Order.OrderStatus.PAID | Order.OrderStatus.OVERPAID:
-                download_links = order.sell()
-                send_download_links(request, download_links, order.user_email)
-            case Order.OrderStatus.EXPIRED | Order.OrderStatus.CANCELLED:
-                order.reset_reservation()
+        try:
+            with transaction.atomic():
+                self.update_order_status(order, data)
+
+                match order.status:
+                    case Order.OrderStatus.PAID | Order.OrderStatus.OVERPAID:
+                        download_links = order.sell()
+                    case Order.OrderStatus.EXPIRED | Order.OrderStatus.CANCELLED:
+                        order.reset_reservation()
+        except ValueError as e:
+            # Order/items already in a terminal state (e.g. a duplicate Plisio callback for an
+            # already-sold order). The whole transaction above rolled back - including the status
+            # update - so the order is left exactly as it was before this callback and can be
+            # retried safely, instead of being stuck "PAID" with nothing actually sold (see
+            # docs/incidents/2026-07-28-order-652-stuck-paid-order.md).
+            logger.warning(f"Callback for order {order.id} could not be applied: {e}")
+            return Response({"detail": "Order processing conflict"}, status=status.HTTP_409_CONFLICT)
+
+        if download_links:
+            send_download_links(request, download_links, order.user_email)
 
         return Response(
             {"detail": "Order and transaction status updated"},

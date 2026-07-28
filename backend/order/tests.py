@@ -59,6 +59,43 @@ class OrderSellIntegrationTests(TestCase):
         self.assertFalse(item.is_reserved)
 
 
+class LatePaymentTests(TestCase):
+    """Regression test for the 2026-07-28 incident: the Plisio invoice expires after 60 min and
+    releases the reservation, then the crypto payment confirms hours later. The late PAID callback
+    must re-reserve from stock instead of leaving the order paid-but-undelivered."""
+
+    def setUp(self):
+        country = Country.objects.create(name="Testland", code="tl")
+        self.passport = Passport.objects.create(name="Test", country=country, price=10)
+        for i in range(2):
+            PassportFile.objects.create(file_path=f"products/passports/{i}.pdf", passport=self.passport)
+
+        self.order = Order.objects.create(user_email="buyer@example.com", total_price=10)
+        self.item = OrderItem.objects.create(order=self.order, passport=self.passport, quantity=1)
+
+    def test_sell_after_expired_reservation_reserves_again(self):
+        self.item.reserve()
+        self.item.reset_reservation()  # invoice expired callback
+
+        links = self.item.sell()  # late "completed" callback
+
+        self.assertEqual(len(links), 1)
+        self.assertEqual(DownloadLink.objects.filter(order_item=self.item).count(), 1)
+        self.passport.refresh_from_db()
+        self.assertEqual(self.passport.quantity, 1)
+
+    def test_sell_after_expired_reservation_raises_when_out_of_stock(self):
+        self.item.reserve()
+        self.item.reset_reservation()
+        self.passport.refresh_from_db()
+        self.passport.reserve(2)  # everything got resold while the payment was pending
+
+        with self.assertRaises(ValueError):
+            self.item.sell()
+
+        self.assertEqual(DownloadLink.objects.filter(order_item=self.item).count(), 0)
+
+
 class PlisioCallbackIdempotencyTests(TestCase):
     """Regression test for the 2026-07-28 incident: a duplicate PAID callback must not
     leave the order stuck - see docs/incidents/2026-07-28-order-652-stuck-paid-order.md."""

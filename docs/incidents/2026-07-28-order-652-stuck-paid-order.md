@@ -1,71 +1,77 @@
-# Инцидент: заказ с OrderItem 652 — оплачен, но ссылки не пришли и не восстанавливаются
+# Инцидент: заказ 469 (OrderItem 652) — оплачен, но ссылки не выданы
 
-**Дата:** 2026-07-28 (оплата с задержкой ~2ч ночью, инцидент обнаружен 2026-07-28 вечером через `/api/send-links/`)
+**Дата:** 2026-07-28. Заказ создан 13:22 UTC, оплата подтверждена 15:55 UTC, инцидент обнаружен вечером через форму `/purchases`.
 
 ## Симптом
 
-Клиент создал заказ и оплатил его сразу, но callback от Plisio дошёл до сайта с задержкой ~2 часа (обычная задержка подтверждения крипто-транзакции). Письмо со ссылками на скачивание не пришло. Повторный запрос ссылок через форму `/purchases` (`SendDownloadLinksView`, `backend/order/views.py:196`) стабильно падает 500:
+Клиент оплатил заказ сразу после создания, но подтверждение крипто-платежа дошло до сайта через ~2.5 часа. Письмо со ссылками не пришло. Повторный запрос через `/api/send-links/` (`SendDownloadLinksView`) стабильно падает 500:
 
 ```
 [WARNING] [order.views] Not enough download links for order item 652
-[ERROR] [django.request] Internal Server Error: /api/send-links/
-...
-File "/app/order/views.py", line 250, in get_order_item_links
-    raise ValueError(f"Not enough download links for order item {order_item.id}")
 ValueError: Not enough download links for order item 652
+```
+
+## Состояние в БД на момент разбора
+
+```
+OrderItem 652: order=469, status=PAID, is_reserved=False, quantity=2
+Passport 563 "France ID card photo": quantity=25, RESERVED-файлов нет
+DownloadLink для item 652: []
+Transaction(order=469): status=completed, confirmations=115,
+                        created_at=13:22:09, updated_at=15:55:06
+Order 469: created_at=13:22:05, updated_at=15:55:06
 ```
 
 ## Root cause
 
-`Passport.reserve()` / `Passport.sell()` (`backend/passport/models.py`, до фикса) выбирали файлы запросом **"первые N файлов со статусом RESERVED/IN_STOCK"** без привязки к конкретному `OrderItem` — это ровно та проблема, что уже была описана в заметке по рефакторингу БД (`docs/db-refactoring/option-1-atomic-link.md`, раздел "NOW"): пока `DownloadLink` не создана, невозможно понять, какой файл зарезервирован для какого заказа.
+Мы отпускаем резерв по таймауту инвойса, а поздний платёж потом применить некуда.
 
-Из-за этого при **параллельной обработке двух callback'ов на один и тот же `Passport`** (например, оплата этого клиента и другого покупателя того же паспорта пришли почти одновременно) оба вызова `Passport.sell(count)` без блокировки строк могли прочитать **одно и то же множество `RESERVED`-файлов**, ещё не закоммиченное друг другом:
+1. **13:22:05** — заказ создан, `OrderItem.reserve()` перевёл 2 файла в `RESERVED`, `is_reserved=True`.
+2. Инвойс Plisio создаётся с `expire_min=60` (`order/views.py`), т.е. истекает в ~14:22 — при том, что подтверждение крипто-транзакции может занять часы.
+3. **~14:22** — Plisio прислал callback `expired` → `PlisioCallbackView` перевёл заказ в `EXPIRED` и вызвал `order.reset_reservation()` → оба файла вернулись в `IN_STOCK`, `is_reserved=False`. С этого момента файлы доступны другим покупателям.
+4. **15:55:06** — транзакция подтвердилась (115 подтверждений), пришёл callback `completed`. `update_order_status()` **отдельной, сразу закоммиченной транзакцией** записал `Order.status=PAID`, после чего `order.sell()` → `OrderItem.sell()` упал на `if not self.is_reserved: raise ValueError("Cannot sell unreserved order item.")`.
+5. Исключение улетело в 500, но `status=PAID` уже был в БД. Итог — ровно наблюдаемое состояние: `PAID`, `is_reserved=False`, ноль `DownloadLink`.
+6. `/api/send-links/` находит заказ по `status=PAID`, видит 0 ссылок и пытается восстановить их fallback-запросом по `PassportFile(status=SOLD, downloadlink__isnull=True)`. Файлы этого заказа никогда не были `SOLD` (продажа не состоялась) — fallback ничего не находит → `ValueError` → 500 на каждую попытку клиента.
 
-1. Оба вызова помечают одни и те же файлы `SOLD` (избыточно, но не страшно само по себе).
-2. Оба пытаются создать `DownloadLink(passport_file=<тот же файл>)` — а `DownloadLink.passport_file` это `OneToOneField` с уникальным ограничением в БД → второй `create()` падает `IntegrityError`.
-3. Эта ошибка вылетает из `OrderItem.sell()` (обёрнут в `@atomic`) — транзакция для **проигравшего** заказа откатывается: его файлы остаются `RESERVED`, `is_reserved` остаётся `True`.
-4. НО: `Order.status = PAID` уже был сохранён **отдельной, уже закоммиченной** транзакцией в `PlisioCallbackView.update_order_status()` **до** вызова `order.sell()` — откат `sell()` эту запись не затрагивает.
-5. Итог: заказ навсегда завис в состоянии `status=PAID`, `is_reserved=True`, `DownloadLink` не создана, писем нет.
-6. При повторном запросе через `/api/send-links/`: `SendDownloadLinksView` находит заказ по `status=PAID`, видит 0 `DownloadLink`, пытается восстановить их fallback-запросом `PassportFile.objects.filter(passport=..., status=SOLD, downloadlink__isnull=True)` — но файлы этого заказа всё ещё `RESERVED`, а не `SOLD`, поэтому fallback ничего не находит → тот же `ValueError`.
+**Проверенные и отвергнутые версии:**
 
-Задержка оплаты в 2 часа сама по себе не является причиной (наш `expire_transactions` — cron `5 0 * * *`, т.е. раз в сутки — за это окно не срабатывал бы). Она лишь совпала по времени с обработкой параллельного заказа; корневая причина — отсутствие блокировки строк и привязки файла к конкретному `OrderItem` при `reserve`/`sell`.
+- *Cron `expire_transactions` сбросил резерв.* Нет: cron идёт по расписанию `5 0 * * *` (раз в сутки в 00:05), заказ прожил 13:22 → 15:55 — в это окно cron не запускался. Сброс сделал именно callback `expired` от Plisio. (Побочно: расписание cron `00:05` и порог `Order.is_expired()` ~1 час друг другу не соответствуют — см. "Дальнейшие шаги".)
+- *Гонка между двумя параллельными `sell()` на один Passport.* Не подтверждается данными этого заказа (при гонке `is_reserved` осталось бы `True` из-за отката). Гонка тем не менее реальна как отдельный дефект — `Passport.reserve/sell` выбирали "первые N файлов с нужным статусом" без блокировки строк и без привязки к конкретному `OrderItem`, поэтому один заказ мог продать файлы, зарезервированные другим. Исправлено в этом же хотфиксе, но причиной **данного** инцидента не является.
 
-## Исправление (применено в этой сессии, ветка `hotfix/plisio-callback-race`)
+## Исправление (ветка `hotfix/plisio-callback-race`)
 
-1. **`backend/passport/models.py`** — `Passport.reserve/return2stock/sell` теперь используют `select_for_update()` на выбираемых файлах внутри `@atomic`. Конкурентный вызов блокируется до коммита первого, после чего повторно видит актуальные статусы — гонка из п.1-2 больше невозможна.
-2. **`backend/order/views.py`** — `PlisioCallbackView.post()`: обновление статуса заказа (`update_order_status`) и `order.sell()`/`order.reset_reservation()` теперь выполняются **в одной транзакции**. Если `sell()` падает (`ValueError` — например, повторный/дублирующийся callback на уже проданный заказ), откатывается **всё**, включая `status`, — заказ остаётся в прежнем состоянии и safe для повторной обработки Plisio-ретраем, вместо зависания в "PAID без файлов". Ответ на конфликт — `409 Conflict` вместо неотловленного 500.
-3. Регресс-тест: `backend/order/tests.py::PlisioCallbackIdempotencyTests` — дублирующийся `completed`-callback на один заказ не крашится и не создаёт лишних `DownloadLink`.
+1. **`backend/order/models.py` — `OrderItem.sell()`**: если резерв уже отпущен, товар **перерезервируется из текущего стока** вместо падения. Это делает поздние платежи самовосстанавливающимися — основной фикс инцидента. Если стока не осталось, `reserve()` бросает `ValueError`, и весь callback откатывается (заказ не остаётся в ложном `PAID`, Plisio может ретраить, и ситуация видна в логах как конфликт, а не как молчаливая потеря).
+2. **`backend/order/models.py` — `Order.sell()`**: добавлен `@atomic`. Раньше при заказе из нескольких позиций падение второй позиции оставляло первую проданной — полу-выполненный заказ.
+3. **`backend/order/views.py` — `PlisioCallbackView.post()`**: обновление статуса и `sell()`/`reset_reservation()` теперь в одной транзакции. При сбое откатывается всё, включая `status`, — состояние "PAID, но не продан" стало невозможным. Ответ на конфликт — `409`, а не неотловленный 500.
+4. **`backend/passport/models.py`** — `reserve/return2stock/sell` используют `select_for_update()` внутри `@atomic`: закрывает гонку между параллельными заказами на один Passport (сопутствующий дефект, см. выше).
+5. Регресс-тесты в `backend/order/tests.py`: `LatePaymentTests` (поздний платёж после истёкшего резерва — успешный и при исчерпанном стоке) и `PlisioCallbackIdempotencyTests` (дублирующийся callback не крашится и не плодит ссылки).
+6. **`backend/order/management/commands/repair_paid_orders.py`** — временная команда для разбора уже пострадавших заказов (см. следующий раздел). Удалить, когда фиксы отработают на проде и зависших заказов не останется.
 
-Это **не устраняет** первопричину полностью (файл всё ещё не привязан персонально к `OrderItem` до продажи — читай `docs/db-refactoring/option-1-atomic-link.md`), но закрывает конкретный гоночный сценарий, который привёл к инциденту, и превращает будущие похожие сбои в безопасный retry вместо зависшего заказа.
+## Восстановление клиента (выполнить на проде)
 
-## Ручное восстановление для пострадавшего клиента (выполнить на проде)
+Заказ 469 состоит из 5 позиций (France / Netherlands / Portugal / Spain / Italy ID card photo, по 2 файла), и `Order.sell()` до этого хотфикса не был атомарным — значит часть позиций могла отработать, а часть нет. Поэтому чинить нужно **по каждой позиции отдельно**, с учётом уже созданных ссылок; для этого есть временная команда `repair_paid_orders` (`backend/order/management/commands/repair_paid_orders.py`).
 
-Я не имею доступа к продовой БД из этой сессии (прод — отдельный сервер, `CLAUDE.md`) — команды ниже нужно выполнить самостоятельно через `make manage c="shell"` (или `manage.py shell` в контейнере) на проде. Сначала только диагностика (read-only):
+Сначала посмотреть план, ничего не меняя:
 
-```python
-from order.models import Order, OrderItem, DownloadLink
-from passport.models import PassportFile
-
-item = OrderItem.objects.select_related("order", "passport").get(id=652)
-print(item.order.id, item.order.status, item.is_reserved, item.quantity)
-print(list(item.passport.files.filter(status=PassportFile.PassportFileStatus.RESERVED).values_list("id", "file_path")))
-print(list(DownloadLink.objects.filter(order_item=item).values_list("id", "uuid")))
+```bash
+make manage c="repair_paid_orders --order 469 --dry-run"
 ```
 
-Если `item.is_reserved == True` и `status=PAID` (ожидаемая картина по анализу выше) — файлы физически всё ещё зарезервированы за этим заказом, продажу можно провести вручную:
+Вывод покажет по каждой позиции, сколько ссылок не хватает и откуда они будут взяты (из собственного резерва позиции или из свободного стока), плюс красным — позиции, для которых стока не хватит. Затем боевой прогон:
 
-```python
-from order.utils import send_download_links
-
-links = item.sell()  # теперь безопасно: select_for_update больше не даст гонки
-send_download_links(None, links, item.order.user_email)  # request=None -> используйте реальный request или соберите ссылку вручную, если get_link требует request
+```bash
+make manage c="repair_paid_orders --order 469"
 ```
 
-`DownloadLink.get_link()` использует `Site.objects.get_current(request)` — если `request=None` не сработает в вашей версии, соберите ссылку вручную: `f"https://{domain}/api/order/file/{item.order.user_email}/{link.uuid}/"`, где `domain` — текущий рабочий домен (`verif-docs.com`/зеркало).
+Без `--order` команда пройдёт по всем `PAID`/`OVERPAID` заказам с недостающими ссылками — стоит прогнать с `--dry-run`, чтобы увидеть, не пострадали ли этим же багом другие клиенты.
 
-Если диагностика покажет **другую** картину (например, `is_reserved=False`, но файлы уже `SOLD` за кем-то ещё) — до применения любых write-команд стоит сверить это со мной или вручную выделить клиенту компенсирующий файл того же паспорта (если в наличии) и оформить возврат/докупку по усмотрению.
+Команда **не отправляет письма** — после неё клиент забирает ссылки сам через форму `/purchases` (она обновляет `uuid` и рассылает их). Команда идемпотентна: повторный запуск трогает только позиции, где ссылок всё ещё меньше, чем `quantity`. Если по какой-то позиции стока не осталось, она падает с `ValueError`, её изменения откатываются (`@atomic` на позицию), остальные позиции чинятся — такие случаи нужно решать вручную (докупка/возврат).
+
+Проверено локально на воспроизведённом заказе из 5 позиций, включающем все четыре состояния: частично выданная позиция, позиция с живым резервом, позиция со сброшенным резервом (случай этого инцидента) и позиция с исчерпанным стоком.
 
 ## Дальнейшие шаги
 
-- Долгосрочное решение — реализовать **Вариант 1 (Atomic Link)** из `docs/db-refactoring/option-1-atomic-link.md` (привязка `reserved_for_item_id` прямо на `PassportFile`), по плану миграции в `docs/db-refactoring/data-migration-plan.md`.
-- Отдельно стоит пересмотреть частоту `expire_transactions` (сейчас `5 0 * * *` — раз в сутки, при этом `Order.is_expired()` считает истечение через ~1 час) — несоответствие каденции cron'а и порога истечения обсудить отдельно, вне рамок этого инцидента.
+- **Увеличить `expire_min`** у инвойса Plisio (сейчас 60 мин) либо не отпускать резерв по `expired`, если платёж уже виден в сети (`Transaction.confirmations > 0`). Текущий хотфикс лечит последствие; расхождение "инвойс живёт час, крипта подтверждается дольше" остаётся системным.
+- **Согласовать cron и порог истечения**: `expire_transactions` идёт раз в сутки (`5 0 * * *`), а `Order.is_expired()` считает заказ истёкшим через ~1 час — резервы висят до суток дольше, чем задумано.
+- **Долгосрочно** — Вариант 1 (Atomic Link) из `docs/db-refactoring/option-1-atomic-link.md`: привязка `reserved_for_item_id` прямо на `PassportFile` убирает целый класс "какой файл чей" проблем. План миграции — `docs/db-refactoring/data-migration-plan.md`.
+- **Мониторинг**: заказ в статусе `PAID` без `DownloadLink` дольше нескольких минут — сигнал к алерту; сейчас такие заказы обнаруживаются только по жалобе клиента.

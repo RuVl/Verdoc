@@ -51,6 +51,7 @@ class Order(models.Model):
         for order_item in self.items.all():
             order_item.reset_reservation()
 
+    @atomic
     def sell(self) -> list["DownloadLink"]:
         download_links = []
         for order_item in self.items.all():
@@ -98,7 +99,11 @@ class OrderItem(models.Model):
     @atomic
     def sell(self) -> list["DownloadLink"]:
         if not self.is_reserved:
-            raise ValueError("Cannot sell unreserved order item.")
+            # Late payment: the reservation was already released (Plisio invoice expires after 60 min,
+            # while a crypto payment can confirm hours later). Re-reserve from current stock instead of
+            # failing - see docs/incidents/2026-07-28-order-652-stuck-paid-order.md. If stock ran out,
+            # reserve() raises and the caller rolls the whole callback back.
+            self.reserve()
 
         self.is_reserved = False
 

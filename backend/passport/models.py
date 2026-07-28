@@ -1,6 +1,6 @@
 import logging
 
-from django.db import models, transaction
+from django.db import models
 from django.db.transaction import atomic
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
@@ -61,30 +61,31 @@ class Passport(models.Model):
     def __str__(self):
         return self.name
 
+    @atomic
     def reserve(self, count) -> list["PassportFile"]:
         """Reserve passport files"""
 
-        if self.quantity < count:
+        # select_for_update() locks the candidate rows for the duration of this transaction, so a concurrent
+        # reserve()/sell() on the same Passport can't select the same not-yet-committed files (see incident
+        # docs/incidents/2026-07-28-order-652-stuck-paid-order.md).
+        files = list(self.files.select_for_update().filter(status=PassportFile.PassportFileStatus.IN_STOCK)[:count])
+        if len(files) != count:
             raise ValueError("Passport quantity must be less than or equal to count")
-
-        files = self.files.filter(status=PassportFile.PassportFileStatus.IN_STOCK)[:count]
-        assert len(files) == count, "Passport quantity is incorrect"
 
         self.quantity -= count
         for file in files:
             file.status = PassportFile.PassportFileStatus.RESERVED
 
-        with transaction.atomic():
-            self.save(update_fields=["quantity"])
-            PassportFile.objects.bulk_update(files, ["status"])
+        self.save(update_fields=["quantity"])
+        PassportFile.objects.bulk_update(files, ["status"])
 
-        return list(files)
+        return files
 
+    @atomic
     def return2stock(self, count) -> list["PassportFile"]:
         """Returns reserved passport files to stock"""
 
-        files = self.files.filter(status=PassportFile.PassportFileStatus.RESERVED)[:count]
-
+        files = list(self.files.select_for_update().filter(status=PassportFile.PassportFileStatus.RESERVED)[:count])
         if len(files) != count:
             raise ValueError("Count must be less than or equal to reserved passport files")
 
@@ -92,17 +93,16 @@ class Passport(models.Model):
         for file in files:
             file.status = PassportFile.PassportFileStatus.IN_STOCK
 
-        with transaction.atomic():
-            self.save(update_fields=["quantity"])
-            PassportFile.objects.bulk_update(files, ["status"])
+        self.save(update_fields=["quantity"])
+        PassportFile.objects.bulk_update(files, ["status"])
 
-        return list(files)
+        return files
 
     @atomic
     def sell(self, count) -> list["PassportFile"]:
         """Sell reserved passport files"""
 
-        files = self.files.filter(status=PassportFile.PassportFileStatus.RESERVED)[:count]
+        files = list(self.files.select_for_update().filter(status=PassportFile.PassportFileStatus.RESERVED)[:count])
         assert len(files) == count, "Not enough reserved passport files"
 
         for file in files:
@@ -110,7 +110,7 @@ class Passport(models.Model):
 
         PassportFile.objects.bulk_update(files, ["status"])
 
-        return list(files)
+        return files
 
 
 class PassportFile(models.Model):

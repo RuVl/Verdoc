@@ -34,6 +34,8 @@ services:
       dockerfile: Dockerfile
     container_name: verdoc_postgres
     restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
     volumes:
       - postgres_volume:/var/lib/postgresql/data
       - ./postgres/backups:/var/backups/postgres

@@ -1,22 +1,20 @@
 FROM docker.io/library/postgres:16.2
 
 # Install cron
-RUN apt-get update && apt-get install -y cron
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends cron \
+  && rm -rf /var/lib/apt/lists/*
 
-# Create the cronjob's log file
-RUN touch /var/log/cron.log
-
-# Copy a backup script and setting execution rights
+# Copy the backup script and the entrypoint wrapper
 COPY backup.sh /usr/local/bin/backup_postgres.sh
-RUN chmod +x /usr/local/bin/backup_postgres.sh
-
-# Replace \n\r to \n and do backup now
-RUN sed -i 's/\r$//' /usr/local/bin/backup_postgres.sh
-RUN bash /usr/local/bin/backup_postgres.sh
+COPY entrypoint.sh /usr/local/bin/pg-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/backup_postgres.sh /usr/local/bin/pg-entrypoint.sh \
+  && chmod +x /usr/local/bin/backup_postgres.sh /usr/local/bin/pg-entrypoint.sh
 
 # Copy the cronjob and apply it
 COPY cronjob /etc/cron.d/backup-cron
 RUN crontab /etc/cron.d/backup-cron
 
-# Running cron in background and PostgreSQL in foreiground
-CMD ["bash", "-c", "service cron start && exec docker-entrypoint.sh postgres"]
+# The wrapper starts cron, then execs the stock entrypoint
+ENTRYPOINT ["/usr/local/bin/pg-entrypoint.sh"]
+CMD ["postgres"]

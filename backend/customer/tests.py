@@ -3,13 +3,16 @@ from unittest.mock import patch
 
 import dns.exception
 import dns.resolver
+from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from customer.models import Customer
 from customer.validators import validate_email_domain
+from sales.models import Order
 
 
 class CustomerAccessTokenTests(TestCase):
@@ -46,6 +49,43 @@ class CustomerSubscriptionTests(TestCase):
 
         self.assertFalse(customer.is_subscribed)
         self.assertEqual(customer.unsubscribed_at, first_time)
+
+
+class CustomerAdminFilterTests(TestCase):
+    """The list must open on buyers, because an abandoned checkout also leaves a Customer row."""
+
+    def setUp(self):
+        self.buyer = Customer.objects.create(email="buyer@example.com")
+        self.lead = Customer.objects.create(email="lead@example.com")
+        Order.objects.create(customer=self.buyer, total_price=10, paid_at=timezone.now())
+        Order.objects.create(customer=self.lead, total_price=10)
+
+        admin_user = User.objects.create_superuser("admin", "admin@example.com", "pw")
+        self.client.force_login(admin_user)
+        self.url = reverse("admin:customer_customer_changelist")
+
+    def emails(self, query: str = ""):
+        response = self.client.get(self.url + query)
+        self.assertEqual(response.status_code, 200)
+        return {customer.email for customer in response.context["cl"].result_list}
+
+    def test_buyers_are_shown_by_default(self):
+        self.assertEqual(self.emails(), {"buyer@example.com"})
+
+    def test_leads_can_be_listed(self):
+        self.assertEqual(self.emails("?purchases=no"), {"lead@example.com"})
+
+    def test_everyone_can_be_listed(self):
+        self.assertEqual(self.emails("?purchases=all"), {"buyer@example.com", "lead@example.com"})
+
+    def test_the_order_counts_are_not_skewed_by_the_filter(self):
+        Order.objects.create(customer=self.buyer, total_price=10)  # unpaid, on top of the paid one
+
+        response = self.client.get(self.url)
+        row = next(c for c in response.context["cl"].result_list if c.email == "buyer@example.com")
+
+        self.assertEqual(row.orders_count, 2)
+        self.assertEqual(row.paid_orders_count, 1)
 
 
 @override_settings(VALIDATE_EMAIL_MX=True)

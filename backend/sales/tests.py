@@ -463,3 +463,28 @@ class ExpireCommandTests(OrderItemFactoryMixin, TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.OrderStatus.PENDING)
         self.assertEqual(product.available_count(), 1)
+
+    def test_one_broken_order_does_not_hold_up_the_others(self):
+        product = self.make_product(4)
+        self.make_item(product, quantity=1).reserve()
+        other = Order.objects.create(customer=self.customer, total_price=10)
+        self.make_item(product, quantity=1, order=other).reserve()
+
+        stale = timezone.now() - timedelta(hours=3)
+        Order.objects.all().update(created_at=stale, updated_at=stale)
+
+        def release(self):
+            if self.pk == other.pk:
+                raise ValueError("boom")
+            return original(self)
+
+        original = Order.release
+        with patch.object(Order, "release", release), self.assertLogs("sales", level="ERROR"):
+            call_command("expire_transactions")
+
+        self.order.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.order.status, Order.OrderStatus.EXPIRED)
+        self.assertEqual(other.status, Order.OrderStatus.PENDING)
+        # Only the healthy order gave its unit back; the broken one still holds its own.
+        self.assertEqual(product.available_count(), 3)

@@ -38,7 +38,7 @@ make migrate       # make manage c=showmigrations to inspect first
 make makemigrations m="catalog customer sales"
 make superuser
 make update-rates  # fetch currency rates (djmoney); required before first orders and for currency switch
-make expire        # release allocations of expired PENDING orders (also cron, 00:05 daily)
+make expire        # release allocations of expired PENDING orders (also cron, every 10 min)
 
 # Tests
 make test          # in the container; make dev-test on the host (t="sales" or t="sales.tests.DeliverTests")
@@ -78,10 +78,12 @@ Backend apps: `catalog` (products + stock), `customer` (buyers and their access)
 `passport` and `order` are **frozen legacy apps**: models and migrations only, kept so the data-transfer migration stays reversible. Nothing new goes in them, and they get dropped by a separate release.
 
 1. **Catalog** - `Country` → `Product` → `StockItem`. Each `StockItem` is one sellable file and has **no status**: a unit is available exactly when no non-`RELEASED` `Allocation` points at it. Stock is **derived**, not stored - `StockItem.objects.available()` / `Product.objects.with_available()` (annotates `available`). There is no counter and no signal to keep in sync.
-2. **Checkout** - `POST /api/order/` (`OrderCreateView` + `OrderSerializer`). Gets/creates the `Customer`, computes `total_price` via djmoney `convert_money`, creates `Order` + `OrderItem`s **with a price snapshot** (`product_name`, `unit_price`, `unit_price_usd`), and allocates units (`RESERVED` allocations). Then requests a Plisio invoice; if that fails the order is deleted, which frees the allocations with it.
+2. **Checkout** - `POST /api/order/` (`OrderCreateView` + `OrderSerializer`). Gets/creates the `Customer`, computes `total_price` via djmoney `convert_money`, creates `Order` + `OrderItem`s **with a price snapshot** (`product_name`, `unit_price`, `unit_price_usd`), and allocates units (`RESERVED` allocations). Then requests a Plisio invoice; the URL is stored on `Order.invoice_url`, and if the request fails the order is deleted, which frees the allocations with it.
 3. **Payment callback** - `POST /api/order/status` (`PlisioCallbackView`). Verifies `verify_hash` (HMAC-SHA1) against **both** the primary and mirror secret keys, stores the raw payload in `PaymentCallbackLog` **before** the atomic block, then upserts the `Transaction` **by `txn_id`** (a currency switch mints a new invoice for the same order). On PAID/OVERPAID: `order.mark_paid()` stamps `paid_at` once and only that first call sends the email; `order.deliver()` flips allocations to `DELIVERED` with fresh tokens and re-allocates from stock if the reservation had expired (late payment). On EXPIRED/CANCELLED: `order.release()`. A duplicate callback is a 200 no-op; 409 is only for "paid but out of stock".
 4. **Delivery** - `Allocation.token` (uuid, `DOWNLOAD_TTL` = 24h). `GET /api/order/file/<email>/<uuid>/` streams the file. `POST /api/send-links/` re-delivers (idempotent, tops up anything missing), rotates the tokens and re-emails them.
-5. **Expiry** - `Order.is_expired()` (~1h). The `expire_transactions` command runs via cron in the backend container and releases allocations of stale PENDING orders.
+5. **Expiry** - `Order.is_expired()` (~1h). The `expire_transactions` command runs via cron in the backend container (every 10 min, one transaction per order) and releases allocations of stale PENDING orders.
+
+**Checkout is deliberately expensive to abuse** ([ADR-0008](./docs/adr/0008-checkout-costs-the-attacker-something.md)): an unpaid order holds stock, so the request itself is rate limited in nginx (`frontend/nginx/00-limits.conf`, `limit_req` on `/api/order/` and `/api/send-links/`; the Plisio callback stays unlimited), capped by `MAX_ITEM_QUANTITY` / `MAX_ORDER_ITEMS`, checked against the e-mail domain's MX record (`customer/validators.py`, fails open, `VALIDATE_EMAIL_MX`), and a repeated checkout of the same cart is sent back to the live invoice instead of reserving a second copy (`Order.objects.reusable()`). A `Customer` row is created at checkout, before payment, so abandoned checkouts leave leads behind - they are kept as funnel data, and the admin list filters down to paying customers by default.
 
 **Invariants live in the schema, not in careful code.** The one that matters: `UniqueConstraint(fields=["stock_item"], condition=~Q(state="RELEASED"))` - one file can only be held by one buyer, so the reservation race that caused the 2026-07-28 incident is impossible. State transitions live on the models (`OrderItem.reserve/deliver/release`, `Order.mark_paid/deliver/release/refresh_download_tokens`), each wrapped in `@atomic`; change those instead of touching `Allocation.state` in a view. They raise `ValueError` on a violation, which views turn into 400/409.
 
@@ -89,7 +91,7 @@ Backend apps: `catalog` (products + stock), `customer` (buyers and their access)
 
 ### Dual-domain (mirror) setup
 The same deployment serves a primary domain and a "mirror" domain. This shows up in several places you must keep consistent:
-- **nginx**: `frontend/nginx/site.conf.template` and `mirror.conf.template` are rendered by nginx's `envsubst` (only the `DOMAIN` var is substituted; the Dockerfile copies them as `verif-docs.conf.template` / `photo-scan.conf.template`).
+- **nginx**: `frontend/nginx/site.conf.template` and `mirror.conf.template` are rendered by nginx's `envsubst` (only the `DOMAIN` var is substituted; the Dockerfile copies them as `verif-docs.conf.template` / `photo-scan.conf.template`). Two plain (non-template) files are shared by both: `00-limits.conf` holds the `limit_req` zones, which belong to the `http` context and must be declared exactly once, and `proxy-backend.conf` holds the `proxy_pass` block that every backend location includes. Keep the two site templates in step - anything added to one belongs in the other. Validate a config change with `nginx -t` before deploying it (render the templates with `sed`, mount them into a throwaway `nginx` container with dummy certs).
 - **Plisio**: the primary domain uses `PLISIO_SECRET_KEY`, everything else uses `MIRROR_PLISIO_SECRET_KEY` (`OrderCreateView` picks by `Site.objects.get_current().domain == ALLOWED_HOSTS[0]`). The callback validates against both keys.
 
 ### Email delivery

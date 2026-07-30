@@ -84,7 +84,7 @@ class OrderAdmin(ReadOnlyAdmin):
     list_filter = ("status", "created_at", "paid_at")
     search_fields = ("customer__email", "id")
     list_select_related = ("customer",)
-    readonly_fields = ("customer", "status", "total_price", "created_at", "updated_at", "paid_at")
+    readonly_fields = ("customer", "status", "total_price", "invoice_url", "created_at", "updated_at", "paid_at")
     inlines = [OrderItemInline]
 
 

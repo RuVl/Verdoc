@@ -54,6 +54,12 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = ["user_email", "items", "total_price"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Set by validate() when the customer already has a live invoice for this cart.
+        self.reused_order: Order | None = None
+
     def validate_items(self, items):
         if len(items) > settings.MAX_ORDER_ITEMS:
             raise serializers.ValidationError(f"At most {settings.MAX_ORDER_ITEMS} different products per order")
@@ -71,18 +77,29 @@ class OrderSerializer(serializers.ModelSerializer):
 
         for item in data["items"]:
             product = item["product"]
-            available = product.available_count()
-            if available < item["quantity"]:
-                raise serializers.ValidationError(f"There are not enough products {product.name}")
-
             item["unit_price_usd"] = convert_money(product.price, "USD").amount
             total_price += item["unit_price_usd"] * item["quantity"]
 
         data["total_price"] = total_price
+
+        self.reused_order = Order.objects.reusable(data["user_email"], data["items"])
+        if self.reused_order is not None:
+            # Its units are already reserved - an availability check here would refuse the customer
+            # their own reservation.
+            return data
+
+        for item in data["items"]:
+            product = item["product"]
+            if product.available_count() < item["quantity"]:
+                raise serializers.ValidationError(f"There are not enough products {product.name}")
+
         return data
 
     @atomic
     def create(self, validated_data):
+        if self.reused_order is not None:
+            return self.reused_order
+
         items_data = validated_data.pop("items")
         total_price = validated_data.pop("total_price")
         customer, _ = Customer.objects.get_or_create(email=validated_data.pop("user_email"))

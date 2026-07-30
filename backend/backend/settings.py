@@ -93,6 +93,11 @@ SITE_SCHEME = "https"  # Uses to build absolute url
 PURCHASES_PAGE_TTL = timedelta(hours=24)  # Customer.access_token
 DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
 
+# Checkout limits. Every unpaid order holds its units until it expires, so one request must not be
+# able to lock a whole product.
+MAX_ITEM_QUANTITY = 10
+MAX_ORDER_ITEMS = 20
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

@@ -438,6 +438,58 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(self.product.available_count(), 3)
 
 
+class CheckoutLimitTests(OrderItemFactoryMixin, TestCase):
+    """One request must not be able to lock a whole product or spawn a huge order."""
+
+    def setUp(self):
+        super().setUp()
+        self.product = self.make_product(50)
+        self.client = APIClient()
+        self.url = reverse("order-create")
+
+    def post(self, items):
+        return self.client.post(self.url, {"user_email": "new@example.com", "items": items}, format="json")
+
+    def test_quantity_over_the_cap_is_rejected(self):
+        response = self.post([{"passport_id": self.product.id, "quantity": settings.MAX_ITEM_QUANTITY + 1}])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Allocation.objects.count(), 0)
+
+    def test_zero_quantity_is_rejected(self):
+        response = self.post([{"passport_id": self.product.id, "quantity": 0}])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(OrderItem.objects.count(), 0)
+
+    def test_empty_order_is_rejected(self):
+        self.assertEqual(self.post([]).status_code, 400)
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 0)
+
+    def test_too_many_lines_are_rejected(self):
+        items = [
+            {"passport_id": self.make_product(1, name=f"P{i}").id, "quantity": 1}
+            for i in range(settings.MAX_ORDER_ITEMS + 1)
+        ]
+
+        self.assertEqual(self.post(items).status_code, 400)
+        self.assertEqual(Allocation.objects.count(), 0)
+
+    def test_the_same_product_twice_is_rejected(self):
+        # Splitting the cart into two lines used to slip past both the per-item cap and the
+        # availability check, which each looked at one line at a time.
+        cap = settings.MAX_ITEM_QUANTITY
+        response = self.post(
+            [
+                {"passport_id": self.product.id, "quantity": cap},
+                {"passport_id": self.product.id, "quantity": cap},
+            ]
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Allocation.objects.count(), 0)
+
+
 class ExpireCommandTests(OrderItemFactoryMixin, TestCase):
     def test_expired_pending_order_releases_its_units(self):
         product = self.make_product(2)

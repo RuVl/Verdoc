@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db.transaction import atomic
 from djmoney.contrib.exchange.models import convert_money
 from rest_framework import serializers
@@ -19,10 +20,18 @@ class OrderItemSerializer(serializers.ModelSerializer):
         queryset=Product.objects.all(),
         source="product",
     )
+    quantity = serializers.IntegerField(min_value=1)
 
     class Meta:
         model = OrderItem
         fields = ["passport_id", "quantity"]
+
+    def validate_quantity(self, value):
+        # Read at call time so the cap can be overridden per deployment and in tests.
+        if value > settings.MAX_ITEM_QUANTITY:
+            raise serializers.ValidationError(f"At most {settings.MAX_ITEM_QUANTITY} units of one product per order")
+
+        return value
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -34,7 +43,7 @@ class OrderSerializer(serializers.ModelSerializer):
     """
 
     user_email = serializers.EmailField(write_only=True)
-    items = OrderItemSerializer(many=True)
+    items = OrderItemSerializer(many=True, allow_empty=False)
     total_price = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -44,6 +53,18 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ["user_email", "items", "total_price"]
+
+    def validate_items(self, items):
+        if len(items) > settings.MAX_ORDER_ITEMS:
+            raise serializers.ValidationError(f"At most {settings.MAX_ORDER_ITEMS} different products per order")
+
+        product_ids = [item["product"].pk for item in items]
+        if len(set(product_ids)) != len(product_ids):
+            # Two lines of the same product would each pass the per-item cap and the availability
+            # check on their own, while together they exceed both.
+            raise serializers.ValidationError("Each product may appear only once - use quantity instead")
+
+        return items
 
     def validate(self, data):
         total_price = 0

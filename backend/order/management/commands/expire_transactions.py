@@ -19,6 +19,6 @@ class Command(BaseCommand):
 
             Order.objects.bulk_update(expired_orders, ["status"])
 
-            self.stdout.write(self.style.SUCCESS("Successfully updated exchange rates"))
+            self.stdout.write(self.style.SUCCESS("Successfully reset reservations"))
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Cannot delete unpaid transactions: {e}"))
+            self.stdout.write(self.style.ERROR(f"Cannot expire orders:\n{expired_orders}\nError: {e}"))

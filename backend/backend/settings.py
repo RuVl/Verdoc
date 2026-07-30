@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -87,6 +88,10 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Site settings
 # SITE_ID = 1
 SITE_SCHEME = "https"  # Uses to build absolute url
+
+# Customer access lifetimes
+PURCHASES_PAGE_TTL = timedelta(hours=24)  # Customer.access_token
+DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
 
 LOGGING = {
     "version": 1,

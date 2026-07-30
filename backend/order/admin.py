@@ -1,52 +1,9 @@
-from django.conf import settings
-from django.contrib import admin, messages
-from django.db.models import QuerySet
-from django.db.transaction import atomic
+from django.contrib import admin
 from django.utils.html import format_html
-from django.utils.module_loading import import_string
-from djmoney.contrib.exchange.models import ExchangeBackend, Rate
 
 from .models import DownloadLink, Order, OrderItem, Transaction
 
-# Disable django-money's Rate admin model
-admin.site.unregister(Rate)
-
-
-# Setup custom Rate admin model
-@admin.register(Rate)
-class CustomRateAdmin(admin.ModelAdmin):
-    list_display = ("currency", "value", "last_update", "backend")
-    search_fields = ("currency",)
-    ordering = ("currency", "backend__last_update")
-    actions = ["update_exchange_rates"]
-
-    @admin.display(description="Last update")
-    def last_update(self, instance: Rate):
-        return instance.backend.last_update
-
-    @admin.action(description="Update exchange rates")
-    @atomic
-    def update_exchange_rates(self, request, queryset: QuerySet[Rate]):
-        currencies = queryset.values_list("currency", flat=True)
-
-        backend = import_string(settings.EXCHANGE_BACKEND)()
-        backend_model, _ = ExchangeBackend.objects.update_or_create(
-            name=backend.name,
-            defaults={"base_currency": settings.BASE_CURRENCY},
-        )
-
-        params = backend.get_params()
-        params.update(base_currency=settings.BASE_CURRENCY, symbols=",".join(currencies))
-        rates = backend.get_rates(**params)
-
-        try:
-            queryset.delete()
-            Rate.objects.bulk_create(
-                [Rate(currency=currency, value=value, backend=backend_model) for currency, value in rates.items()],
-            )
-            self.message_user(request, "Exchange rates updates successfully", messages.SUCCESS)
-        except Exception as e:
-            self.message_user(request, f"Error while updating exchange rates: {e}", messages.ERROR)
+# The Rate admin moved to sales/admin.py - this app is on its way out.
 
 
 class OrderItemInline(admin.TabularInline):

@@ -15,6 +15,7 @@ dependencies = [
     "pycountry==24.6.1",
     "psycopg[binary]==3.2.9",
     "requests==2.32.4",
+    "dnspython>=2.8.0",
 ]
 
 # === ruff ===

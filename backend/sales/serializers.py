@@ -5,6 +5,7 @@ from rest_framework import serializers
 
 from catalog.models import Product
 from customer.models import Customer
+from customer.validators import validate_email_domain
 from sales.models import Order, OrderItem
 
 
@@ -42,7 +43,7 @@ class OrderSerializer(serializers.ModelSerializer):
     client. `user_email` is the API name of the customer's email until R2.
     """
 
-    user_email = serializers.EmailField(write_only=True)
+    user_email = serializers.EmailField(write_only=True, validators=[validate_email_domain])
     items = OrderItemSerializer(many=True, allow_empty=False)
     total_price = serializers.DecimalField(
         max_digits=10,

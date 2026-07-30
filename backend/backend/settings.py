@@ -98,6 +98,10 @@ DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
 MAX_ITEM_QUANTITY = 10
 MAX_ORDER_ITEMS = 20
 
+# Look up the MX record of the e-mail domain at checkout. Fails open on any DNS trouble, see
+# customer/validators.py - turn it off only if outbound DNS is blocked.
+VALIDATE_EMAIL_MX = env.bool("VALIDATE_EMAIL_MX", default=True)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

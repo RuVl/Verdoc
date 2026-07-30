@@ -5,10 +5,12 @@ import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
+import dns.resolver
 from django.conf import settings
 from django.core import mail
+from django.core.cache import cache
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -388,6 +390,7 @@ class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(response.status_code, 404)
 
 
+@override_settings(VALIDATE_EMAIL_MX=False)
 class CheckoutTests(OrderItemFactoryMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -438,6 +441,7 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(self.product.available_count(), 3)
 
 
+@override_settings(VALIDATE_EMAIL_MX=False)
 class CheckoutReuseTests(OrderItemFactoryMixin, TestCase):
     """A repeated checkout of the same cart must land on the same invoice, not reserve a second copy."""
 
@@ -541,6 +545,7 @@ class CheckoutReuseTests(OrderItemFactoryMixin, TestCase):
         plisio.assert_called_once()
 
 
+@override_settings(VALIDATE_EMAIL_MX=False)
 class CheckoutLimitTests(OrderItemFactoryMixin, TestCase):
     """One request must not be able to lock a whole product or spawn a huge order."""
 
@@ -552,6 +557,16 @@ class CheckoutLimitTests(OrderItemFactoryMixin, TestCase):
 
     def post(self, items):
         return self.client.post(self.url, {"user_email": "new@example.com", "items": items}, format="json")
+
+    @override_settings(VALIDATE_EMAIL_MX=True)
+    def test_an_undeliverable_email_domain_is_rejected(self):
+        cache.clear()
+        with patch.object(dns.resolver.Resolver, "resolve", side_effect=dns.resolver.NXDOMAIN):
+            response = self.post([{"passport_id": self.product.id, "quantity": 1}])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("user_email", response.data)
+        self.assertEqual(Customer.objects.filter(email="new@example.com").count(), 0)
 
     def test_quantity_over_the_cap_is_rejected(self):
         response = self.post([{"passport_id": self.product.id, "quantity": settings.MAX_ITEM_QUANTITY + 1}])

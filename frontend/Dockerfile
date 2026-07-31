@@ -39,6 +39,10 @@ COPY --from=build-stage /app/dist /usr/share/nginx/html
 COPY nginx/site.conf.template /etc/nginx/templates/verif-docs.conf.template
 COPY nginx/mirror.conf.template /etc/nginx/templates/photo-scan.conf.template
 
+# Rate-limit zones (http context, declared once) and the shared proxy block
+COPY nginx/00-limits.conf /etc/nginx/conf.d/00-limits.conf
+COPY nginx/proxy-backend.conf /etc/nginx/proxy-backend.conf
+
 # Copy SSL certificates
 COPY ./nginx/ssl/ /etc/ssl/
 

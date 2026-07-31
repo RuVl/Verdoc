@@ -5,10 +5,12 @@ import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
+import dns.resolver
 from django.conf import settings
 from django.core import mail
+from django.core.cache import cache
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -388,6 +390,7 @@ class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(response.status_code, 404)
 
 
+@override_settings(VALIDATE_EMAIL_MX=False)
 class CheckoutTests(OrderItemFactoryMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -438,6 +441,173 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(self.product.available_count(), 3)
 
 
+@override_settings(VALIDATE_EMAIL_MX=False)
+class CheckoutReuseTests(OrderItemFactoryMixin, TestCase):
+    """A repeated checkout of the same cart must land on the same invoice, not reserve a second copy."""
+
+    def setUp(self):
+        super().setUp()
+        self.product = self.make_product(3)
+        self.client = APIClient()
+        self.url = reverse("order-create")
+
+    def payload(self, quantity: int = 1, product: Product | None = None):
+        return {
+            "user_email": "new@example.com",
+            "items": [{"passport_id": (product or self.product).id, "quantity": quantity}],
+        }
+
+    def checkout(self, payload, invoice_url: str = "https://plisio.net/invoice/1"):
+        with patch("sales.views.requests.get") as plisio:
+            plisio.return_value.status_code = 200
+            plisio.return_value.json.return_value = {"status": "success", "data": {"invoice_url": invoice_url}}
+            response = self.client.post(self.url, payload, format="json")
+            return response, plisio
+
+    def test_second_checkout_returns_the_first_invoice(self):
+        first, _ = self.checkout(self.payload())
+        second, plisio = self.checkout(self.payload(), invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(second.data["redirect_url"], first.data["redirect_url"])
+        plisio.assert_not_called()  # no second invoice was minted
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 1)
+        self.assertEqual(Allocation.objects.count(), 1)
+        self.assertEqual(self.product.available_count(), 2)
+
+    def test_reuse_works_when_the_order_holds_the_last_unit(self):
+        # The availability check used to refuse the customer their own reservation here.
+        product = self.make_product(1, name="Single")
+        first, _ = self.checkout(self.payload(product=product))
+        second, _ = self.checkout(self.payload(product=product))
+
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(second.data["redirect_url"], first.data["redirect_url"])
+        self.assertEqual(Allocation.objects.count(), 1)
+
+    def test_a_different_cart_gets_its_own_order(self):
+        self.checkout(self.payload(quantity=1))
+        second, plisio = self.checkout(self.payload(quantity=2), invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
+        plisio.assert_called_once()
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 2)
+        self.assertEqual(self.product.available_count(), 0)
+
+    def test_a_changed_price_gets_its_own_order(self):
+        self.checkout(self.payload())
+        Product.objects.filter(pk=self.product.pk).update(price=99)
+
+        second, _ = self.checkout(self.payload(), invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 2)
+
+    def test_an_expired_order_is_not_reused(self):
+        self.checkout(self.payload())
+        stale = timezone.now() - timedelta(hours=3)
+        Order.objects.filter(customer__email="new@example.com").update(created_at=stale, updated_at=stale)
+
+        second, _ = self.checkout(self.payload(), invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 2)
+
+    def test_a_released_order_is_not_reused(self):
+        self.checkout(self.payload())
+        order = Order.objects.get(customer__email="new@example.com")
+        order.release()
+
+        second, _ = self.checkout(self.payload(), invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 2)
+
+    def test_another_customer_does_not_reuse_the_invoice(self):
+        self.checkout(self.payload())
+        other = self.payload() | {"user_email": "other@example.com"}
+
+        second, plisio = self.checkout(other, invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
+        plisio.assert_called_once()
+        self.assertEqual(Allocation.objects.count(), 2)
+
+    def test_a_failed_invoice_leaves_nothing_to_reuse(self):
+        with patch("sales.views.requests.get") as plisio:
+            plisio.return_value.status_code = 500
+            plisio.return_value.json.return_value = {"status": "error"}
+            self.client.post(self.url, self.payload(), format="json")
+
+        second, plisio = self.checkout(self.payload(), invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
+        plisio.assert_called_once()
+
+
+@override_settings(VALIDATE_EMAIL_MX=False)
+class CheckoutLimitTests(OrderItemFactoryMixin, TestCase):
+    """One request must not be able to lock a whole product or spawn a huge order."""
+
+    def setUp(self):
+        super().setUp()
+        self.product = self.make_product(50)
+        self.client = APIClient()
+        self.url = reverse("order-create")
+
+    def post(self, items):
+        return self.client.post(self.url, {"user_email": "new@example.com", "items": items}, format="json")
+
+    @override_settings(VALIDATE_EMAIL_MX=True)
+    def test_an_undeliverable_email_domain_is_rejected(self):
+        cache.clear()
+        with patch.object(dns.resolver.Resolver, "resolve", side_effect=dns.resolver.NXDOMAIN):
+            response = self.post([{"passport_id": self.product.id, "quantity": 1}])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("user_email", response.data)
+        self.assertEqual(Customer.objects.filter(email="new@example.com").count(), 0)
+
+    def test_quantity_over_the_cap_is_rejected(self):
+        response = self.post([{"passport_id": self.product.id, "quantity": settings.MAX_ITEM_QUANTITY + 1}])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Allocation.objects.count(), 0)
+
+    def test_zero_quantity_is_rejected(self):
+        response = self.post([{"passport_id": self.product.id, "quantity": 0}])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(OrderItem.objects.count(), 0)
+
+    def test_empty_order_is_rejected(self):
+        self.assertEqual(self.post([]).status_code, 400)
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 0)
+
+    def test_too_many_lines_are_rejected(self):
+        items = [
+            {"passport_id": self.make_product(1, name=f"P{i}").id, "quantity": 1}
+            for i in range(settings.MAX_ORDER_ITEMS + 1)
+        ]
+
+        self.assertEqual(self.post(items).status_code, 400)
+        self.assertEqual(Allocation.objects.count(), 0)
+
+    def test_the_same_product_twice_is_rejected(self):
+        # Splitting the cart into two lines used to slip past both the per-item cap and the
+        # availability check, which each looked at one line at a time.
+        cap = settings.MAX_ITEM_QUANTITY
+        response = self.post(
+            [
+                {"passport_id": self.product.id, "quantity": cap},
+                {"passport_id": self.product.id, "quantity": cap},
+            ]
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Allocation.objects.count(), 0)
+
+
 class ExpireCommandTests(OrderItemFactoryMixin, TestCase):
     def test_expired_pending_order_releases_its_units(self):
         product = self.make_product(2)
@@ -463,3 +633,28 @@ class ExpireCommandTests(OrderItemFactoryMixin, TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.OrderStatus.PENDING)
         self.assertEqual(product.available_count(), 1)
+
+    def test_one_broken_order_does_not_hold_up_the_others(self):
+        product = self.make_product(4)
+        self.make_item(product, quantity=1).reserve()
+        other = Order.objects.create(customer=self.customer, total_price=10)
+        self.make_item(product, quantity=1, order=other).reserve()
+
+        stale = timezone.now() - timedelta(hours=3)
+        Order.objects.all().update(created_at=stale, updated_at=stale)
+
+        def release(self):
+            if self.pk == other.pk:
+                raise ValueError("boom")
+            return original(self)
+
+        original = Order.release
+        with patch.object(Order, "release", release), self.assertLogs("sales", level="ERROR"):
+            call_command("expire_transactions")
+
+        self.order.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.order.status, Order.OrderStatus.EXPIRED)
+        self.assertEqual(other.status, Order.OrderStatus.PENDING)
+        # Only the healthy order gave its unit back; the broken one still holds its own.
+        self.assertEqual(product.available_count(), 3)

@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.db import models
-from django.db.models import Q, UniqueConstraint
+from django.db.models import Count, Q, UniqueConstraint
 from django.db.transaction import atomic
 from django.http import HttpRequest
 from django.urls import reverse
@@ -15,6 +15,42 @@ from djmoney.models.fields import MoneyField
 from catalog.models import Product, StockItem
 
 
+class OrderQuerySet(models.QuerySet):
+    def reusable(self, email: str, items: list[dict]) -> "Order | None":
+        """
+        A live invoice of this customer for exactly this cart, or None.
+
+        Handing it back instead of minting a second order is what keeps a double click - or someone
+        probing the checkout with the same cart - from reserving another copy of the same units.
+        """
+
+        wanted = sorted((item["product"].pk, item["quantity"]) for item in items)
+        wanted_units = sum(quantity for _, quantity in wanted)
+
+        candidates = (
+            self.filter(customer__email=email, status=Order.OrderStatus.PENDING)
+            .exclude(invoice_url="")
+            .annotate(reserved=Count("items__allocations", filter=Q(items__allocations__state="RESERVED")))
+            .prefetch_related("items__product")
+            .order_by("-created_at")
+        )
+
+        for order in candidates:
+            if order.is_expired() or order.reserved != wanted_units:
+                continue
+
+            items_of = list(order.items.all())
+            if sorted((item.product_id, item.quantity) for item in items_of) != wanted:
+                continue
+
+            # The catalog price must not have moved since, otherwise the old invoice would sell at
+            # the old price. Both sides come from the same column, so this compares exactly.
+            if all(item.product and item.unit_price == item.product.price for item in items_of):
+                return order
+
+        return None
+
+
 class Order(models.Model):
     """
     One checkout: what the customer asked for and how the payment went.
@@ -22,6 +58,7 @@ class Order(models.Model):
     :param customer: Who bought.
     :param status: Order status (PENDING, PAID, OVERPAID, EXPIRED, ERROR, CANCELLED).
     :param total_price: Total price of the order, in USD as sent to Plisio.
+    :param invoice_url: Plisio invoice this order was sent to, empty until the invoice is minted.
     :param created_at: When the order was created.
     :param updated_at: When the order was last touched.
     :param paid_at: When the order first became paid; stamped once, gates the delivery email.
@@ -40,9 +77,12 @@ class Order(models.Model):
     customer = models.ForeignKey("customer.Customer", related_name="orders", on_delete=models.PROTECT)
     status = models.CharField(max_length=15, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     total_price = MoneyField(max_digits=10, decimal_places=2, default_currency="USD")
+    invoice_url = models.URLField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     paid_at = models.DateTimeField(null=True, blank=True)
+
+    objects = OrderQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("Order")

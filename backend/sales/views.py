@@ -50,6 +50,12 @@ class OrderCreateView(APIView):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        if serializer.reused_order is not None:
+            # Same customer, same cart, invoice still alive: send them back to it instead of
+            # reserving a second copy of the same units.
+            logger.info(f"Order {order.id} reused for a repeated checkout")
+            return Response({"redirect_url": order.invoice_url}, status=status.HTTP_201_CREATED)
+
         if Site.objects.get_current(request).domain == settings.ALLOWED_HOSTS[0]:
             secret_key = settings.PLISIO_SECRET_KEY
         else:
@@ -71,6 +77,10 @@ class OrderCreateView(APIView):
         if response.status_code == 200 and response.json().get("status") == "success":
             logger.info(f"Order {order.id} created successfully")
             redirect_url = response.json()["data"]["invoice_url"]
+
+            # Stored so a repeated checkout of the same cart can be sent back to this invoice.
+            order.invoice_url = redirect_url
+            order.save(update_fields=["invoice_url"])
 
             return Response({"redirect_url": redirect_url}, status=status.HTTP_201_CREATED)
 

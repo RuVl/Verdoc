@@ -95,8 +95,8 @@ DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
 
 # Checkout limits. Every unpaid order holds its units until it expires, so one request must not be
 # able to lock a whole product.
-MAX_ITEM_QUANTITY = 10
-MAX_ORDER_ITEMS = 20
+MAX_ITEM_QUANTITY = 30
+MAX_ORDER_ITEMS = 25
 
 # Look up the MX record of the e-mail domain at checkout. Fails open on any DNS trouble, see
 # customer/validators.py - turn it off only if outbound DNS is blocked.

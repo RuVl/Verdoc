@@ -73,6 +73,7 @@ make pre-commit-install / make pre-commit
 ## Architecture
 
 ### Order / fulfillment flow (the core domain)
+
 Backend apps: `catalog` (products + stock), `customer` (buyers and their access), `sales` (checkout, payment, delivery). Domain vocabulary is in [`CONTEXT.md`](./CONTEXT.md), decisions in [`docs/adr/`](./docs/adr/), the schema in [`docs/db-refactoring/target-schema.md`](./docs/db-refactoring/target-schema.md).
 
 `passport` and `order` are **frozen legacy apps**: models and migrations only, kept so the data-transfer migration stays reversible. Nothing new goes in them, and they get dropped by a separate release.
@@ -90,30 +91,39 @@ Backend apps: `catalog` (products + stock), `customer` (buyers and their access)
 **API compatibility layer (R1 only):** the storefront still speaks the old words - `passports`, `quantity`, `passport_id`, `user_email` are kept as API names over the renamed models. Do not "fix" them piecemeal; they come off in R2 together with the frontend ([`docs/db-refactoring/r2.md`](./docs/db-refactoring/r2.md)).
 
 ### Dual-domain (mirror) setup
+
 The same deployment serves a primary domain and a "mirror" domain. This shows up in several places you must keep consistent:
+
 - **nginx**: `frontend/nginx/site.conf.template` and `mirror.conf.template` are rendered by nginx's `envsubst` (only the `DOMAIN` var is substituted; the Dockerfile copies them as `verif-docs.conf.template` / `photo-scan.conf.template`). Two plain (non-template) files are shared by both: `00-limits.conf` holds the `limit_req` zones, which belong to the `http` context and must be declared exactly once, and `proxy-backend.conf` holds the `proxy_pass` block that every backend location includes. Keep the two site templates in step - anything added to one belongs in the other. Validate a config change with `nginx -t` before deploying it (render the templates with `sed`, mount them into a throwaway `nginx` container with dummy certs).
 - **Plisio**: the primary domain uses `PLISIO_SECRET_KEY`, everything else uses `MIRROR_PLISIO_SECRET_KEY` (`OrderCreateView` picks by `Site.objects.get_current().domain == ALLOWED_HOSTS[0]`). The callback validates against both keys.
 
 ### Email delivery
+
 Download links are emailed via whatever `EMAIL_URL` points to. **In production that is SendPulse (SMTP)** - the active path. A **backup** DKIM-signing relay is available as the `mail` service in `docker-compose.yaml`, on the ready-made `boky/postfix` image, behind a compose **profile** so it does not start by default:
+
 - Start it only when needed: `docker compose --profile mail up -d mail`, then set `EMAIL_URL=smtp://mail:587` in `backend/.env` and restart the backend. boky listens on **587** (submission); outbound to recipients' MX on 25 is handled by Postfix itself - no port needs publishing.
 - DKIM: selector is `mail` (boky default, matches the published `mail._domainkey.photo-scan.store` DNS record). The existing **private key** is mounted read-only at `/etc/opendkim/keys/photo-scan.store.private` (boky's expected `<domain>.private` path) - copy it from the server into `secrets/opendkim/photo-scan.store.private` (gitignored). **Never regenerate the key** (do not set `DKIM_AUTOGENERATE`) - it would break DNS - and never commit or print it.
 
 ### i18n
+
 Both ends are bilingual (en/ru). Backend uses **django-modeltranslation** - translated fields are declared in `catalog/translation.py` (`Country.name`, `Product.name`); the country list endpoint honors a `?lang=` query param. `passport/translation.py` is still there on purpose: dropping it would make modeltranslation want to remove the legacy `name_en`/`name_ru` columns. Frontend uses vue-i18n (`src/i18n/locales/`). Note: `sales/utils.py` email copy is hard-coded Russian.
 
 ### Frontend
+
 Vue 3 + Pinia (with `pinia-plugin-persistedstate` for the cart), Vue Router, axios. Stores in `src/stores/` (`cart`, `currencies`, `order`, `settings`, `languages`) hold client state; currency switching is client-side using rates from `GET /api/exchange-rates/`.
 
 ### Responsive layout
+
 Design mockups are the source of truth: `design/*.png` has a desktop and a `_mob` variant per page (e.g. `mainpage.png` / `mainpage_mob.png`). Match them when changing layout.
+
 - **Product table** (`views/Home.vue` + `components/ListView.vue`): the row is **CSS Grid**, not a `<table>` or flexbox. Wide screens use one row (`grid-template-columns` with `minmax(0, 1fr)` for the name so it shrinks - no fixed widths); `.product-name` needs `overflow-wrap: anywhere` so long unbreakable tokens can't cause horizontal overflow. At `<=768px` it switches to a 2-row `grid-template-areas` card (name + Buy on top, counters + cart below) per the mobile mockup; `<=480px` only tightens gaps and swaps the "Buy now"/"Buy" label. Breakpoints are `768` and `480` (`max-width`).
 - The `responsive-craft` skill (`/responsive-craft audit|build|preview`) is installed for responsive work. Verify visually across widths, not just at named breakpoints - drag from ~320px up and watch for horizontal overflow (a headless browser adds a ~15px scrollbar that real phones don't, so don't tune breakpoints to headless pixel measurements).
 
 ## Local development
 
 For day-to-day work you don't need the full docker stack (and under rootless podman `frontend-nginx` can't bind 80/443). Instead run the app processes on the host and keep only postgres in docker:
-- `docker-compose.dev.yaml` runs **postgres only**, publishing it to `localhost:5432`, using a volume named `verdoc_postgres`. **This only overlaps with real prod data when you run it directly on the production server itself** - prod (the full stack, including its DB) lives on a separate remote server, not on a developer's local machine, so a local checkout's `verdoc_postgres` volume is its own independent, empty volume with no prod data in it. The "don't run both at once" rule below only matters when both stacks are on the *same* host (e.g. you're doing this on the prod server) - two instances on one data dir corrupt the DB.
+
+- `docker-compose.dev.yaml` runs **postgres only**, publishing it to `localhost:5432`, using a volume named `verdoc_postgres`. **This only overlaps with real prod data when you run it directly on the production server itself** - prod (the full stack, including its DB) lives on a separate remote server, not on a developer's local machine, so a local checkout's `verdoc_postgres` volume is its own independent, empty volume with no prod data in it. The "don't run both at once" rule below only matters when both stacks are on the _same_ host (e.g. you're doing this on the prod server) - two instances on one data dir corrupt the DB.
 - `backend/dev.env` overrides `backend/.env` for the host backend (see Environment above): `DEBUG=True`, `DATABASE_URL` → `localhost:5432`, `EMAIL_URL=consolemail://` (dev mail prints to the backend console).
 - Typical loop: `make dev-infra` → `make dev-migrate` → `make dev-backend` (host, :8000) + `make dev-frontend` (vite, :5173). No nginx locally. Seed a catalog once with `seed_testdata` (see Commands) so the storefront isn't empty.
 
@@ -126,4 +136,4 @@ For day-to-day work you don't need the full docker stack (and under rootless pod
 - Backend style is enforced by ruff (line-length 120, double quotes) - run `make format` (or let pre-commit run it) before committing.
 - Work happens on `dev`; PRs target `main`.
 - **Git commit messages are written in English, in the past tense** (`docs(db-refactoring): rewrote the schema plan as ADRs`), not the imperative. Conventional-Commit format, no co-authored tail. Only commit when the user explicitly asks.
-- **After each action, end your reply with a one-line summary written as a Conventional-Commit message:** `type(scope): что сделал` in Russian, past tense, matching this repo's history. Types: `feat`, `fix`, `refactor`, `style`, `docs`, `ci`, `test`, `chore`. Scopes: `catalog`, `customer`, `sales`, `backend`, `frontend`, `mail`, `Makefile`, `deps`, etc. Example: `ci(Makefile): добавил dev-цели для локального запуска`. This is a recap of the work performed - **not** an instruction to create a git commit.
+- **After each action (with write to file), end your reply with a one-line summary written as a Conventional-Commit message:** `type(scope): что сделал` in Russian, past tense, matching this repo's history. Types: `feat`, `fix`, `refactor`, `style`, `docs`, `ci`, `test`, `chore`. Scopes: `catalog`, `customer`, `sales`, `backend`, `frontend`, `mail`, `Makefile`, `deps`, etc. Example: `ci(Makefile): добавил dev-цели для локального запуска`. This is a recap of the work performed - **not** an instruction to create a git commit.

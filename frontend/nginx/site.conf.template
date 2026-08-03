@@ -30,6 +30,7 @@ server {
   ssl_certificate_key     /etc/ssl/${DOMAIN}.key;
 
   # Default headers
+  # HSTS
   add_header              'Strict-Transport-Security' 'max-age=63072000; includeSubDomains; preload';
 
   # Default settings
@@ -48,15 +49,22 @@ server {
   access_log              /usr/www/logs/nginx_access.log;
   error_log               /usr/www/logs/nginx_error.log error;
 
+  # Checkout: reserves stock, so it is rate limited per client (exact match wins over the regex
+  # location below). The Plisio callback at /api/order/status stays unlimited on purpose.
+  location = /api/order/ {
+    limit_req             zone=checkout burst=5 nodelay;
+    include               /etc/nginx/proxy-backend.conf;
+  }
+
+  # Re-sending download links: one e-mail per request.
+  location = /api/send-links/ {
+    limit_req             zone=maillinks burst=3 nodelay;
+    include               /etc/nginx/proxy-backend.conf;
+  }
+
   # Django proxy (admin and api)
   location ~ ^/(api|admin)/ {
-    proxy_pass            http://backend:8000;
-    proxy_redirect        off;
-
-    proxy_set_header      Host $host;
-    proxy_set_header      X-Real-IP $remote_addr;
-    proxy_set_header      X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header      X-Forwarded-Proto $scheme;
+    include               /etc/nginx/proxy-backend.conf;
   }
 
   # Frontend files

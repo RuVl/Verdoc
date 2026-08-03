@@ -177,6 +177,10 @@ dev-backend: dev-infra ## Запустить backend локально (runserver
 dev-superuser: dev-infra ## Создать суперпользователя в dev-БД
 	$(MANAGE_DEV) createsuperuser
 
+.PHONY: dev-test
+dev-test: dev-infra ## Тесты локальным backend (t="sales.tests.DeliverTests" - только часть)
+	$(MANAGE_DEV) test $(if $(t),$(t),catalog customer sales)
+
 # --- Django (внутри контейнера backend) -------------------------------------
 
 .PHONY: manage
@@ -188,8 +192,12 @@ migrate: ## Применить миграции
 	$(MANAGE) migrate
 
 .PHONY: makemigrations
-makemigrations: ## Создать миграции: make makemigrations m="order passport"
+makemigrations: ## Создать миграции: make makemigrations m="catalog customer sales"
 	$(MANAGE) makemigrations $(m)
+
+.PHONY: test
+test: ## Тесты в контейнере (t="sales" - только часть)
+	$(MANAGE) test $(if $(t),$(t),catalog customer sales)
 
 .PHONY: collectstatic
 collectstatic: ## Собрать статику

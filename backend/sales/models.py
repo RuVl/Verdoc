@@ -1,10 +1,12 @@
+import logging
 import uuid
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.db import models
-from django.db.models import Count, Q, UniqueConstraint
+from django.db.models import Count, ProtectedError, Q, UniqueConstraint
 from django.db.transaction import atomic
 from django.http import HttpRequest
 from django.urls import reverse
@@ -13,6 +15,25 @@ from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 
 from catalog.models import Product, StockItem
+
+logger = logging.getLogger(__name__)
+
+
+def protect_held_units(collector, field, sub_objs, using):
+    """
+    on_delete for Allocation.stock_item: a unit somebody holds cannot be deleted.
+
+    A DELIVERED unit is the file a paying customer downloads, so dropping it would leave the sale
+    without anything to hand over; a RESERVED one belongs to a live order. Both are refused.
+    RELEASED allocations are history and let the file go, keeping the record with a NULL unit.
+    """
+
+    held = [allocation for allocation in sub_objs if allocation.state != Allocation.State.RELEASED]
+    if held:
+        logger.warning(f"Refused to delete stock items held by allocations {[a.pk for a in held]}")
+        raise ProtectedError("Cannot delete a unit that an order holds", held)
+
+    models.SET_NULL(collector, field, sub_objs, using)
 
 
 class OrderQuerySet(models.QuerySet):
@@ -84,6 +105,12 @@ class Order(models.Model):
 
     objects = OrderQuerySet.as_manager()
 
+    # Annotated with the queryset, see catalog.models.
+    if TYPE_CHECKING:
+        items: models.QuerySet["OrderItem"]
+        transactions: models.QuerySet["Transaction"]
+        callback_logs: models.QuerySet["PaymentCallbackLog"]
+
     class Meta:
         verbose_name = _("Order")
         verbose_name_plural = _("Orders")
@@ -111,6 +138,9 @@ class Order(models.Model):
         stamped = Order.objects.filter(pk=self.pk, paid_at__isnull=True).update(paid_at=now)
         if stamped:
             self.paid_at = now
+            logger.info(f"Order {self.pk} marked as paid at {now:%Y-%m-%d %H:%M:%S}")
+        else:
+            logger.info(f"Order {self.pk} was already paid at {self.paid_at}, not sending a second email")
 
         return bool(stamped)
 
@@ -161,7 +191,9 @@ class OrderItem(models.Model):
     :param product: Product bought, NULL once it leaves the catalog.
     :param product_name: Product name as of checkout.
     :param unit_price: Price of one unit as of checkout, in the product's own currency.
-    :param unit_price_usd: The same price converted to USD at checkout rates.
+    :param unit_price_usd: The same price converted to USD at the exchange rate of that day. Not
+        derivable from `unit_price` afterwards - a RUB-priced product converts differently every
+        day, and this is the number `Order.total_price` was built from and Plisio was billed for.
     :param quantity: How many units.
     """
 
@@ -173,6 +205,9 @@ class OrderItem(models.Model):
     unit_price_usd = models.DecimalField(max_digits=10, decimal_places=2)
 
     quantity = models.PositiveIntegerField()
+
+    if TYPE_CHECKING:
+        allocations: models.QuerySet["Allocation"]
 
     class Meta:
         verbose_name = _("Order item")
@@ -189,6 +224,7 @@ class OrderItem(models.Model):
             return []
 
         if self.product_id is None:
+            logger.error(f"Order item {self.pk} has no product to allocate from")
             raise ValueError(f"Order item {self.pk} has no product to allocate from")
 
         # Lock the product row so concurrent checkouts of the same product queue up here instead of
@@ -197,8 +233,13 @@ class OrderItem(models.Model):
 
         units = list(StockItem.objects.available().filter(product_id=self.product_id)[:count])
         if len(units) != count:
+            logger.error(
+                f"Order item {self.pk} (order {self.order_id}) is out of stock for product "
+                f"{self.product_id}: need {count}, have {len(units)}"
+            )
             raise ValueError(f"Not enough stock for product {self.product_id}: need {count}, have {len(units)}")
 
+        logger.info(f"Order item {self.pk} reserved units {[unit.pk for unit in units]}")
         now = timezone.now()
         return Allocation.objects.bulk_create(
             [
@@ -212,6 +253,7 @@ class OrderItem(models.Model):
         """Reserve the whole quantity at checkout."""
 
         if self.allocations.exclude(state=Allocation.State.RELEASED).exists():
+            logger.error(f"Order item {self.pk} (order {self.order_id}) already holds units, refusing to reserve again")
             raise ValueError(f"Order item {self.pk} cannot be reserved twice")
 
         return self._allocate(self.quantity)
@@ -222,8 +264,8 @@ class OrderItem(models.Model):
         Turn the reservation into a delivery: RESERVED -> DELIVERED with a fresh token.
 
         Repeating this is a no-op, and a late payment is no longer a special case: if the reservation
-        was already released, the missing units are allocated again from current stock. Running out
-        of stock raises, and the caller rolls the callback back so Plisio can retry.
+        was already released, the missing units are allocated again from current stock. Running out-of-stock
+        raises, and the caller rolls the callback back so Plisio can retry.
         """
 
         delivered = list(self.allocations.filter(state=Allocation.State.DELIVERED))
@@ -231,6 +273,8 @@ class OrderItem(models.Model):
 
         missing = self.quantity - len(delivered) - len(reserved)
         if missing > 0:
+            # Late payment: the reservation had already expired, so we buy the units back now.
+            logger.warning(f"Order item {self.pk} lost {missing} unit(s) before payment, re-allocating from stock")
             reserved.extend(self._allocate(missing))
 
         now = timezone.now()
@@ -254,6 +298,9 @@ class OrderItem(models.Model):
             allocation.released_at = now
 
         Allocation.objects.bulk_update(reserved, ["state", "released_at"])
+        if reserved:
+            logger.info(f"Order item {self.pk} released units {[a.stock_item_id for a in reserved]}")
+
         return reserved
 
 
@@ -266,7 +313,7 @@ class Allocation(models.Model):
     nobody" cannot happen and neither can "sold without a download link".
 
     :param order_item: Item this unit was allocated to.
-    :param stock_item: The unit, NULL once the file leaves the catalog.
+    :param stock_item: The unit; only ever NULL for a RELEASED allocation, see `protect_held_units`.
     :param state: RESERVED (held), DELIVERED (handed over), RELEASED (given back).
     :param reserved_at: When the unit was taken.
     :param delivered_at: When the unit was handed over.
@@ -281,7 +328,7 @@ class Allocation(models.Model):
         RELEASED = "RELEASED", _("Released")
 
     order_item = models.ForeignKey(OrderItem, related_name="allocations", on_delete=models.CASCADE)
-    stock_item = models.ForeignKey(StockItem, related_name="allocations", on_delete=models.SET_NULL, null=True)
+    stock_item = models.ForeignKey(StockItem, related_name="allocations", on_delete=protect_held_units, null=True)
 
     state = models.CharField(max_length=15, choices=State.choices, default=State.RESERVED)
 

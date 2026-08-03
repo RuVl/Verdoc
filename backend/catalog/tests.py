@@ -1,5 +1,7 @@
+from django.forms import inlineformset_factory
 from django.test import TestCase
 
+from catalog.admin import StockItemInlineFormSet, stock_item_state
 from catalog.models import Country, Product, StockItem
 from customer.models import Customer
 from sales.models import Allocation, Order, OrderItem
@@ -111,3 +113,59 @@ class AllocationConstraintTests(TestCase):
 
         self.assertEqual(Allocation.objects.filter(state=Allocation.State.RESERVED).count(), 1)
         self.assertEqual(Allocation.objects.count(), 2)
+
+
+class StockItemAdminTests(TestCase):
+    """The Product page lists units inline, and that table must not be a way around the FK guard."""
+
+    def setUp(self):
+        self.country = Country.objects.create(name="Testland", code="tl")
+        self.product = Product.objects.create(name="Test", country=self.country, price=10)
+        self.unit = StockItem.objects.create(file="products/held.pdf", product=self.product)
+
+        customer = Customer.objects.create(email="buyer@example.com")
+        order = Order.objects.create(customer=customer, total_price=10)
+        self.item = OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=self.product.price,
+            unit_price_usd=10,
+            quantity=1,
+        )
+
+    def formset(self, delete: bool):
+        # The same formset the Product page builds for its StockItem inline.
+        formset_cls = inlineformset_factory(
+            Product, StockItem, formset=StockItemInlineFormSet, fields=["file"], extra=0
+        )
+        data = {
+            "stock_items-TOTAL_FORMS": "1",
+            "stock_items-INITIAL_FORMS": "1",
+            "stock_items-MIN_NUM_FORMS": "0",
+            "stock_items-MAX_NUM_FORMS": "1000",
+            "stock_items-0-id": str(self.unit.pk),
+            "stock_items-0-product": str(self.product.pk),
+            "stock_items-0-file": self.unit.file.name,
+        }
+        if delete:
+            data["stock_items-0-DELETE"] = "on"
+
+        return formset_cls(data=data, instance=self.product, prefix="stock_items")
+
+    def test_deleting_a_held_unit_is_rejected(self):
+        Allocation.objects.create(order_item=self.item, stock_item=self.unit, state=Allocation.State.DELIVERED)
+
+        formset = self.formset(delete=True)
+
+        self.assertFalse(formset.is_valid())
+        self.assertIn("held by an order", str(formset.non_form_errors()))
+
+    def test_deleting_a_free_unit_is_allowed(self):
+        self.assertTrue(self.formset(delete=True).is_valid())
+
+    def test_state_column_calls_a_reserved_unit_reserved(self):
+        Allocation.objects.create(order_item=self.item, stock_item=self.unit, state=Allocation.State.RESERVED)
+
+        self.assertEqual(stock_item_state(self.unit), "Reserved")
+        self.assertFalse(self.unit.is_available())

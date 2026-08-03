@@ -6,11 +6,14 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import dns.resolver
+import requests
 from django.conf import settings
+from django.contrib.sites.models import Site
 from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.db.models import ProtectedError
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -18,6 +21,7 @@ from rest_framework.test import APIClient
 from catalog.models import Country, Product, StockItem
 from customer.models import Customer
 from sales.models import Allocation, Order, OrderItem, PaymentCallbackLog, Transaction
+from sales.utils import send_download_links
 
 
 class OrderItemFactoryMixin:
@@ -434,9 +438,38 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
             plisio.return_value.status_code = 500
             plisio.return_value.json.return_value = {"status": "error"}
 
+            with self.assertLogs("sales.views", level="ERROR"):
+                response = self.client.post(self.url, self.payload(), format="json")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 0)
+        self.assertEqual(self.product.available_count(), 3)
+
+    def test_failed_invoice_passes_the_provider_reason_on(self):
+        with patch("sales.views.requests.get") as plisio:
+            plisio.return_value.status_code = 200
+            plisio.return_value.json.return_value = {
+                "status": "error",
+                "data": {"message": "Shop is not active", "code": 401},
+            }
+
+            with self.assertLogs("sales.views", level="ERROR"):
+                response = self.client.post(self.url, self.payload(), format="json")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data["detail"], "Shop is not active")
+        self.assertEqual(response.data["code"], "invoice_failed")
+        self.assertEqual(response.data["provider_code"], 401)
+
+    def test_unreachable_plisio_does_not_leave_a_reservation(self):
+        with (
+            patch("sales.views.requests.get", side_effect=requests.ConnectionError("no route")),
+            self.assertLogs("sales.views", level="ERROR"),
+        ):
             response = self.client.post(self.url, self.payload(), format="json")
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data["detail"], "Error creating invoice")
         self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 0)
         self.assertEqual(self.product.available_count(), 3)
 
@@ -658,3 +691,76 @@ class ExpireCommandTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(other.status, Order.OrderStatus.PENDING)
         # Only the healthy order gave its unit back; the broken one still holds its own.
         self.assertEqual(product.available_count(), 3)
+
+
+class StockItemDeletionTests(OrderItemFactoryMixin, TestCase):
+    """A unit an order holds is the thing the customer paid for - it must not be deletable."""
+
+    def test_delivered_unit_cannot_be_deleted(self):
+        product = self.make_product(1)
+        item = self.make_item(product, quantity=1)
+        item.reserve()
+        item.deliver()
+        unit = StockItem.objects.get(product=product)
+
+        with self.assertRaises(ProtectedError), self.assertLogs("sales.models", level="WARNING"):
+            unit.delete()
+
+        self.assertTrue(StockItem.objects.filter(pk=unit.pk).exists())
+
+    def test_reserved_unit_cannot_be_deleted(self):
+        product = self.make_product(1)
+        self.make_item(product, quantity=1).reserve()
+        unit = StockItem.objects.get(product=product)
+
+        with self.assertRaises(ProtectedError), self.assertLogs("sales.models", level="WARNING"):
+            unit.delete()
+
+        self.assertTrue(StockItem.objects.filter(pk=unit.pk).exists())
+
+    def test_released_unit_can_be_deleted_and_keeps_the_record(self):
+        product = self.make_product(1)
+        item = self.make_item(product, quantity=1)
+        item.reserve()
+        item.release()
+        unit = StockItem.objects.get(product=product)
+
+        unit.delete()
+
+        allocation = Allocation.objects.get(order_item=item)
+        self.assertIsNone(allocation.stock_item_id)
+        self.assertEqual(allocation.state, Allocation.State.RELEASED)
+
+    def test_a_free_unit_is_deletable(self):
+        product = self.make_product(1)
+        unit = StockItem.objects.get(product=product)
+
+        unit.delete()
+
+        self.assertFalse(StockItem.objects.filter(pk=unit.pk).exists())
+
+
+class DownloadLinkMailTests(OrderItemFactoryMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        # get_current() resolves either by SITE_ID or by the request host - this covers both.
+        Site.objects.update_or_create(pk=1, defaults={"domain": "testserver", "name": "test"})
+
+    def test_a_stale_token_is_reissued_instead_of_breaking_the_mail(self):
+        product = self.make_product(1)
+        item = self.make_item(product, quantity=1)
+        item.reserve()
+        allocations = item.deliver()
+
+        expired = timezone.now() - timedelta(hours=1)
+        Allocation.objects.filter(pk=allocations[0].pk).update(token_expires_at=expired)
+        allocations[0].token_expires_at = expired
+
+        request = RequestFactory().post("/api/send-links/")
+        with self.assertLogs("sales.utils", level="WARNING"):
+            send_download_links(request, allocations, self.customer.email)
+
+        allocations[0].refresh_from_db()
+        self.assertTrue(allocations[0].is_token_valid())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(str(allocations[0].token), mail.outbox[0].body)

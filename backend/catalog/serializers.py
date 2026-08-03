@@ -49,12 +49,15 @@ class ProductSerializer(TranslationFieldsMixin, serializers.ModelSerializer):
 class CountrySerializer(TranslationFieldsMixin, serializers.ModelSerializer):
     """Country serializer for sending all country's products."""
 
-    passports = serializers.SerializerMethodField()
+    # `passports` is the API name the storefront still speaks (R1 compatibility layer); the method
+    # is named after the model, so `method_name` spells the mapping out instead of hiding it in
+    # DRF's get_<field> convention. The field itself is renamed in R2 together with the frontend.
+    passports = serializers.SerializerMethodField(method_name="get_products")
 
     class Meta:
         model = Country
         fields = ("id", "name", "code", "passports")
 
-    def get_passports(self, obj):
+    def get_products(self, obj):
         products = obj.products.with_available().filter(available__gt=0)
         return ProductSerializer(products, many=True).data

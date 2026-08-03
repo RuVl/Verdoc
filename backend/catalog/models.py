@@ -1,9 +1,14 @@
+from typing import TYPE_CHECKING
+
 from django.apps import apps
 from django.db import models
 from django.db.models import Count, Exists, IntegerField, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
+
+if TYPE_CHECKING:
+    from sales.models import Allocation
 
 
 class Country(models.Model):
@@ -16,6 +21,9 @@ class Country(models.Model):
 
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=31, null=True, default=None)
+
+    if TYPE_CHECKING:
+        products: "ProductQuerySet"
 
     @property
     def flag(self) -> str:
@@ -76,6 +84,9 @@ class Product(models.Model):
 
     objects = ProductQuerySet.as_manager()
 
+    if TYPE_CHECKING:
+        stock_items: StockItemQuerySet
+
     class Meta:
         verbose_name = _("Product")
         verbose_name_plural = _("Products")
@@ -105,6 +116,9 @@ class StockItem(models.Model):
 
     objects = StockItemQuerySet.as_manager()
 
+    if TYPE_CHECKING:
+        allocations: models.QuerySet["Allocation"]
+
     class Meta:
         verbose_name = _("Stock item")
         verbose_name_plural = _("Stock items")
@@ -114,5 +128,13 @@ class StockItem(models.Model):
         return f"{self.product.name if self.product else 'NULL'} - {self.file.name}"
 
     def is_available(self) -> bool:
+        """
+        Same rule as `StockItemQuerySet.available()`, for a single row.
+
+        Held means held by anybody: a RESERVED unit of an unpaid order is just as unavailable as a
+        DELIVERED one. Only RELEASED allocations leave the unit free. One query per call - use the
+        queryset for lists.
+        """
+
         allocation = apps.get_model("sales", "Allocation")
         return not self.allocations.exclude(state=allocation.State.RELEASED).exists()

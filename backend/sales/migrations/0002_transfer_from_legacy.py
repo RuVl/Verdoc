@@ -16,12 +16,17 @@ Two things are reconstructed rather than copied, see docs/db-refactoring/data-mi
 Primary keys of orders are preserved: Plisio invoices carry order_number = Order.id, and callbacks
 for invoices issued before the cutover will still arrive with the old numbers. Sequences are reset
 afterwards.
+
+Nothing here requires the legacy apps to be installed. Once they are dropped, every lookup below
+misses, the migration turns into a no-op and a fresh database can still be built from zero - which
+is the whole point of keeping it applyable rather than squashing it away.
 """
 
 import logging
 import uuid
 from collections import defaultdict
 
+from django.apps import apps as installed_apps
 from django.conf import settings
 from django.db import migrations
 
@@ -39,6 +44,32 @@ PK_PRESERVED = (
     ("sales", "OrderItem"),
     ("sales", "Transaction"),
 )
+
+
+# Only ordering constraints: the legacy tables must be fully migrated before they are read. They
+# are dropped from the list along with the apps themselves, and the migration keeps working.
+LEGACY_DEPENDENCIES = (
+    ("passport", "0011_alter_passport_quantity"),
+    ("order", "0005_alter_downloadlink_order_item_alter_order_status_and_more"),
+)
+
+
+def is_installed(app_label: str) -> bool:
+    try:
+        installed_apps.get_app_config(app_label)
+    except LookupError:
+        return False
+
+    return True
+
+
+def legacy_models(apps, *names: tuple[str, str]):
+    """The listed historical models, or None if the legacy apps are gone."""
+
+    try:
+        return [apps.get_model(app_label, model_name) for app_label, model_name in names]
+    except LookupError:
+        return None
 
 
 def to_usd(price):
@@ -60,9 +91,11 @@ def to_usd(price):
 
 
 def transfer_catalog(apps):
-    OldCountry = apps.get_model("passport", "Country")
-    OldPassport = apps.get_model("passport", "Passport")
-    OldFile = apps.get_model("passport", "PassportFile")
+    legacy = legacy_models(apps, ("passport", "Country"), ("passport", "Passport"), ("passport", "PassportFile"))
+    if legacy is None:
+        return
+
+    OldCountry, OldPassport, OldFile = legacy
     Country = apps.get_model("catalog", "Country")
     Product = apps.get_model("catalog", "Product")
     StockItem = apps.get_model("catalog", "StockItem")
@@ -95,7 +128,11 @@ def transfer_catalog(apps):
 def transfer_customers(apps) -> dict[str, int]:
     """Fold distinct order emails into Customer rows, keeping unsubscribes if there are any."""
 
-    OldOrder = apps.get_model("order", "Order")
+    legacy = legacy_models(apps, ("order", "Order"))
+    if legacy is None:
+        return {}
+
+    (OldOrder,) = legacy
     Customer = apps.get_model("customer", "Customer")
 
     emails = sorted(set(OldOrder.objects.values_list("user_email", flat=True)))
@@ -127,9 +164,11 @@ def transfer_customers(apps) -> dict[str, int]:
 
 
 def transfer_orders(apps, customer_ids: dict[str, int]):
-    OldOrder = apps.get_model("order", "Order")
-    OldItem = apps.get_model("order", "OrderItem")
-    OldTxn = apps.get_model("order", "Transaction")
+    legacy = legacy_models(apps, ("order", "Order"), ("order", "OrderItem"), ("order", "Transaction"))
+    if legacy is None:
+        return
+
+    OldOrder, OldItem, OldTxn = legacy
     Order = apps.get_model("sales", "Order")
     OrderItem = apps.get_model("sales", "OrderItem")
 
@@ -171,9 +210,11 @@ def transfer_orders(apps, customer_ids: dict[str, int]):
 
 
 def transfer_allocations(apps):
-    OldFile = apps.get_model("passport", "PassportFile")
-    OldItem = apps.get_model("order", "OrderItem")
-    OldLink = apps.get_model("order", "DownloadLink")
+    legacy = legacy_models(apps, ("passport", "PassportFile"), ("order", "OrderItem"), ("order", "DownloadLink"))
+    if legacy is None:
+        return
+
+    OldFile, OldItem, OldLink = legacy
     Allocation = apps.get_model("sales", "Allocation")
 
     allocations = []
@@ -249,7 +290,11 @@ def transfer_allocations(apps):
 
 
 def transfer_transactions(apps):
-    OldTxn = apps.get_model("order", "Transaction")
+    legacy = legacy_models(apps, ("order", "Transaction"))
+    if legacy is None:
+        return
+
+    (OldTxn,) = legacy
     Transaction = apps.get_model("sales", "Transaction")
 
     rows = []
@@ -288,6 +333,7 @@ def transfer_transactions(apps):
 
 def reset_sequences(apps, schema_editor):
     for app_label, model_name in PK_PRESERVED:
+        # noinspection PyProtectedMember
         table = apps.get_model(app_label, model_name)._meta.db_table
         schema_editor.execute(
             f"SELECT setval("
@@ -329,8 +375,9 @@ class Migration(migrations.Migration):
         ("sales", "0001_initial"),
         ("catalog", "0001_initial"),
         ("customer", "0001_initial"),
-        ("passport", "0011_alter_passport_quantity"),
-        ("order", "0005_alter_downloadlink_order_item_alter_order_status_and_more"),
+        # Only while the legacy apps are still installed - a dependency on an app that is gone
+        # would make every migration plan unresolvable, including on a fresh database.
+        *((app_label, migration) for app_label, migration in LEGACY_DEPENDENCIES if is_installed(app_label)),
     ]
 
     operations = [

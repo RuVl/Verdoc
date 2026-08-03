@@ -1,17 +1,22 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+if TYPE_CHECKING:
+    from sales.models import OrderQuerySet
+
 
 class Customer(models.Model):
     """
-    A person who bought at least once, identified by email.
+    Somebody who reached the checkout, identified by email.
 
     Replaces the bare `Order.user_email` string, so purchases, access and mailing preferences
-    have one owner (ADR-0004).
+    have one owner (ADR-0004). The row is written at checkout, before the payment, so a customer
+    without a paid order is a lead and not a buyer - see the admin filter and ADR-0008.
 
     :param email: Customer's email, the natural key.
     :param access_token: Opens the purchases page with every paid order of this customer.
@@ -30,6 +35,9 @@ class Customer(models.Model):
     unsubscribed_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    if TYPE_CHECKING:
+        orders: "OrderQuerySet"
 
     class Meta:
         verbose_name = _("Customer")

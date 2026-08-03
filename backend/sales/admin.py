@@ -69,6 +69,7 @@ class OrderItemInline(admin.TabularInline):
     fields = ["product", "product_name", "quantity", "unit_price", "unit_price_usd", "delivered"]
     readonly_fields = fields
     extra = 0
+    show_change_link = True
 
     @admin.display(description="Delivered")
     def delivered(self, obj: OrderItem):
@@ -94,7 +95,10 @@ class OrderItemAdmin(ReadOnlyAdmin):
     list_filter = ("order__status", "product__country")
     search_fields = ("order__customer__email", "product_name")
     list_select_related = ("order", "product")
-    readonly_fields = ("order", "product", "product_name", "unit_price", "unit_price_usd", "quantity")
+    # The USD snapshot is only interesting next to the order total, so it stays on the Order page
+    # (OrderItemInline) and is left out here.
+    fields = ("order", "product", "product_name", "unit_price", "quantity")
+    readonly_fields = fields
 
     @admin.display(description="Delivered")
     def delivered(self, obj: OrderItem):

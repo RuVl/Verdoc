@@ -73,10 +73,19 @@ class OrderCreateView(APIView):
             "expire_min": "60",
         }
 
-        response = requests.get("https://plisio.net/api/v1/invoices/new", params=invoice_data)
-        if response.status_code == 200 and response.json().get("status") == "success":
+        response, payload = None, {}
+        try:
+            response = requests.get("https://plisio.net/api/v1/invoices/new", params=invoice_data, timeout=30)
+            payload = response.json()
+        except ValueError as e:
+            # Includes requests' JSONDecodeError - the call went through, the body is not JSON.
+            logger.error(f"Plisio answered order {order.id} with something that is not JSON: {e}")
+        except requests.RequestException as e:
+            logger.error(f"Plisio is unreachable for order {order.id}: {e}")
+
+        if response is not None and response.status_code == 200 and payload.get("status") == "success":
             logger.info(f"Order {order.id} created successfully")
-            redirect_url = response.json()["data"]["invoice_url"]
+            redirect_url = payload["data"]["invoice_url"]
 
             # Stored so a repeated checkout of the same cart can be sent back to this invoice.
             order.invoice_url = redirect_url
@@ -84,11 +93,23 @@ class OrderCreateView(APIView):
 
             return Response({"redirect_url": redirect_url}, status=status.HTTP_201_CREATED)
 
-        logger.info(f"Invoice has not created for order {order.id}")
+        # Plisio puts its own diagnosis in data.{message,code}; pass it on so the storefront can say
+        # more than "something went wrong", and log the raw answer for us.
+        error = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        http_status = response.status_code if response is not None else None
+        logger.error(f"Invoice not created for order {order.id}: HTTP {http_status}, payload {payload}")
+
         # Deleting the order takes its allocations with it, so the units are free again.
         order.delete()
 
-        return Response({"detail": "Error creating invoice"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "detail": error.get("message") or "Error creating invoice",
+                "code": "invoice_failed",
+                "provider_code": error.get("code"),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
 
 class PlisioCallbackView(APIView):

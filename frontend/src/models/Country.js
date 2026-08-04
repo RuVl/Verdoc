@@ -1,5 +1,5 @@
 import TranslatableModel from './TranslatableModel';
-import Passport from "@/models/Passport.js";
+import Product from "@/models/Product.js";
 import {assign} from "lodash";
 
 export default class Country extends TranslatableModel {
@@ -8,14 +8,14 @@ export default class Country extends TranslatableModel {
 
         this.id = data.id;
         this.code = data.code;
-        this.passports = data.passports;
+        this.products = data.products;
     }
 
     static fromApi(country) {
         const data = {
             id: parseInt(country.id),
             code: country.code,
-            passports: country.passports.map(passport => Passport.fromApi(passport, country)),
+            products: country.products.map(product => Product.fromApi(product, country)),
         };
         return new Country(assign(country, data));
     }

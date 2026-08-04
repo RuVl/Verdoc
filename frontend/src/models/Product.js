@@ -2,7 +2,7 @@ import TranslatableModel from './TranslatableModel';
 import {useCurrenciesStore} from "@/stores/currencies.js";
 import {assign} from "lodash";
 
-export default class Passport extends TranslatableModel {
+export default class Product extends TranslatableModel {
     constructor(data) {
         super(data);
 
@@ -34,19 +34,19 @@ export default class Passport extends TranslatableModel {
         this._quantity = value;
     }
 
-    static fromApi(passport, country) {
+    static fromApi(product, country) {
         const data = {
-            id: parseInt(passport.id),
+            id: parseInt(product.id),
             code: country.code,
             price: {
-                amount: parseFloat(passport.price),
-                currency: passport.price_currency
+                amount: parseFloat(product.price),
+                currency: product.price_currency
             },
             _quantity: 1, // default quantity to buy
-            max_quantity: parseInt(passport.quantity),
+            max_quantity: parseInt(product.available),
         };
 
-        return new Passport(assign(passport, data));
+        return new Product(assign(product, data));
     }
 
     formattedPrice(use_quantity = false) {

@@ -169,3 +169,31 @@ class StockItemAdminTests(TestCase):
 
         self.assertEqual(stock_item_state(self.unit), "Reserved")
         self.assertFalse(self.unit.is_available())
+
+
+class CountryApiTests(TestCase):
+    """The storefront payload. R2 dropped the passport-era key names, so their shape is pinned here."""
+
+    def setUp(self):
+        self.country = Country.objects.create(name="Testland", code="tl")
+        self.product = Product.objects.create(name="Test", country=self.country, price=10)
+        for i in range(2):
+            StockItem.objects.create(file=f"products/{i}.pdf", product=self.product)
+
+    def test_countries_carry_products_with_their_available_count(self):
+        response = self.client.get("/api/countries/")
+
+        self.assertEqual(response.status_code, 200)
+        country = response.json()[0]
+        self.assertNotIn("passports", country)
+
+        product = country["products"][0]
+        self.assertEqual(product["available"], 2)
+        self.assertNotIn("quantity", product)
+
+    def test_a_product_nobody_can_buy_is_hidden(self):
+        empty = Product.objects.create(name="Empty", country=self.country, price=10)
+
+        names = [p["name_en"] for p in self.client.get("/api/countries/").json()[0]["products"]]
+
+        self.assertNotIn(empty.name, names)

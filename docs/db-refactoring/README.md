@@ -16,7 +16,9 @@
 | [`current-schema.dbml`](./current-schema.dbml) | как было до рефакторинга |
 | [`target-schema.md`](./target-schema.md) | целевая схема, инварианты, потоки |
 | [`data-migration-plan.md`](./data-migration-plan.md) | перелив данных и SQL-сверки |
-| [`rollout.md`](./rollout.md) | три релиза и порядок выкатки |
+| [`r1.md`](./r1.md) | релиз 1 — схема, перелив, бэкенд |
+| [`r2.md`](./r2.md) | релиз 2 — страница покупок |
+| [`r3.md`](./r3.md) | релиз 3 — рассылки и статистика |
 
 Решения и отвергнутые альтернативы — в [`docs/adr/`](../adr/).
 Термины домена — в [`CONTEXT.md`](../../CONTEXT.md).

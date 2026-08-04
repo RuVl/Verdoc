@@ -1,3 +1,8 @@
+"""Frozen legacy catalog. Replaced by `catalog`, kept read-only so its migrations still apply and
+the data transfer stays reversible. Dropped by a separate release once prod is verified - do not
+build anything new on these models.
+"""
+
 import logging
 
 from django.db import models

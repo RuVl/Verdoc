@@ -4,9 +4,15 @@
     "buy": "Buy",
     "buy_now": "Buy now",
     "cart": "@:routes.cart",
+    "copied": "Copied",
+    "copy_link": "Copy link",
     "delete": "Delete",
+    "download": "Download",
     "go_back_home": "Go back home",
     "payment_method": "Choose a payment method",
+    "refresh_all_links": "Refresh all links",
+    "refresh_link": "Refresh link",
+    "request_new_link": "Request a new link",
     "send_links": "Send links",
     "support": "Store support",
     "to_cart": "@:buttons.add2cart"
@@ -46,6 +52,15 @@
     "email": {
       "ask": "Enter the email address to receive the files",
       "placeholder": "Enter email"
+    },
+    "page": {
+      "empty": "No paid purchases here yet.",
+      "expired_link": "This link is no longer valid. Request a new one and it will arrive by e-mail.",
+      "file": "File {n}",
+      "file_expired": "The link has expired",
+      "loading": "Loading your purchases…",
+      "share_warning": "The link to this page opens every purchase you made - do not forward it.",
+      "valid_until": "The link works until {date}"
     }
   },
   "routes": {

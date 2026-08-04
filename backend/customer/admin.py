@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.db.models import Count, Exists, OuterRef, Q
+from django.utils.html import format_html
 
 from customer.models import Customer
 from sales.models import Order
@@ -43,12 +44,18 @@ class HasPurchasesFilter(admin.SimpleListFilter):
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ["email", "orders_count", "paid_orders_count", "is_subscribed", "has_access", "created_at"]
+    list_display = ["email", "orders_count", "has_access", "is_subscribed", "created_at"]
     list_filter = [HasPurchasesFilter, "is_subscribed", "created_at"]
     search_fields = ["email"]
-    readonly_fields = ["access_token", "access_token_expires_at", "created_at", "unsubscribed_at"]
+    fields = ["email", "access_token_url", "access_token_expires_at", "is_subscribed", "unsubscribed_at", "created_at"]
+    readonly_fields = fields
+
+    def __init__(self, model, admin_site):
+        super().__init__(model, admin_site)
+        self._request = None
 
     def get_queryset(self, request):
+        self._request = request
         return (
             super()
             .get_queryset(request)
@@ -58,17 +65,22 @@ class CustomerAdmin(admin.ModelAdmin):
             )
         )
 
-    @admin.display(description="Orders", ordering="orders_count")
+    @admin.display(description="Completed orders", ordering="orders_count")
     def orders_count(self, obj):
-        return obj.orders_count
+        return f"{obj.paid_orders_count}/{obj.orders_count}"
 
-    @admin.display(description="Paid", ordering="paid_orders_count")
-    def paid_orders_count(self, obj):
-        return obj.paid_orders_count
-
-    @admin.display(boolean=True, description="Access token valid")
+    @admin.display(boolean=True, description="URL unexpired")
     def has_access(self, obj: Customer):
         return obj.is_access_token_valid()
 
+    @admin.display(description="Access url")
+    def access_token_url(self, obj: Customer):
+        return format_html(
+            '<a href="{url}">{text}</a>', url=obj.get_purchases_url(self._request), text=obj.access_token
+        )
+
     def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

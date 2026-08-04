@@ -1,8 +1,10 @@
 import hashlib
 import hmac
 import json
+import tempfile
 import uuid
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import dns.resolver
@@ -21,7 +23,7 @@ from rest_framework.test import APIClient
 from catalog.models import Country, Product, StockItem
 from customer.models import Customer
 from sales.models import Allocation, Order, OrderItem, PaymentCallbackLog, Transaction
-from sales.utils import send_download_links
+from sales.utils import send_purchases_link
 
 
 class OrderItemFactoryMixin:
@@ -331,30 +333,69 @@ class PlisioCallbackTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(PaymentCallbackLog.objects.filter(order__isnull=True).count(), 1)
 
 
-class DownloadTests(OrderItemFactoryMixin, TestCase):
+class ServedFilesMixin(OrderItemFactoryMixin):
+    """Puts real bytes behind every StockItem, so a download can actually be streamed."""
+
     def setUp(self):
         super().setUp()
+        media = self.enterContext(tempfile.TemporaryDirectory())
+        self.enterContext(override_settings(MEDIA_ROOT=media))
+
         self.item = self.make_item(self.make_product(1), quantity=1)
+        for unit in StockItem.objects.all():
+            path = Path(media) / unit.file.name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"%PDF-1.4 test")
+
         self.item.reserve()
         self.allocation = self.item.deliver()[0]
 
+
+class DownloadTests(ServedFilesMixin, TestCase):
+    def download(self, token) -> int:
+        return self.client.get(f"/api/files/{token}/").status_code
+
+    def test_a_live_token_streams_the_file(self):
+        response = self.client.get(reverse("download-file", args=[self.allocation.token]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.4 test")
+
+    def test_expired_token_is_not_served(self):
+        self.allocation.token_expires_at = timezone.now() - timedelta(seconds=1)
+        self.allocation.save(update_fields=["token_expires_at"])
+
+        self.assertEqual(self.download(self.allocation.token), 404)
+
+    def test_unknown_token_is_not_served(self):
+        self.assertEqual(self.download(uuid.uuid4()), 404)
+
+    def test_malformed_token_is_not_served(self):
+        self.assertEqual(self.download("not-a-uuid"), 404)
+
+    def test_a_released_allocation_is_not_served(self):
+        self.item.allocations.update(state=Allocation.State.RELEASED)
+
+        self.assertEqual(self.download(self.allocation.token), 404)
+
+
+class LegacyDownloadTests(ServedFilesMixin, TestCase):
+    """Links from e-mails sent before R2 keep working until their tokens expire."""
+
     def download(self, email: str, token) -> int:
-        return self.client.get(reverse("download-file", args=[email, token])).status_code
+        return self.client.get(reverse("download-file-legacy", args=[email, token])).status_code
+
+    def test_the_old_link_still_serves_the_file(self):
+        self.assertEqual(self.download(self.customer.email, self.allocation.token), 200)
+
+    def test_someone_elses_email_is_not_served(self):
+        self.assertEqual(self.download("other@example.com", self.allocation.token), 404)
 
     def test_expired_token_is_not_served(self):
         self.allocation.token_expires_at = timezone.now() - timedelta(seconds=1)
         self.allocation.save(update_fields=["token_expires_at"])
 
         self.assertEqual(self.download(self.customer.email, self.allocation.token), 404)
-
-    def test_someone_elses_email_is_not_served(self):
-        self.assertEqual(self.download("other@example.com", self.allocation.token), 404)
-
-    def test_unknown_token_is_not_served(self):
-        self.assertEqual(self.download(self.customer.email, uuid.uuid4()), 404)
-
-    def test_malformed_token_is_not_served(self):
-        self.assertEqual(self.download(self.customer.email, "not-a-uuid"), 404)
 
 
 class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
@@ -369,14 +410,27 @@ class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
         self.client = APIClient()
         self.url = reverse("send-links")
 
-    def test_links_are_reissued_and_emailed(self):
-        old_token = self.item.allocations.get().token
+    def test_the_purchases_link_is_rotated_and_emailed(self):
+        old_access_token = self.customer.access_token
 
         response = self.client.post(self.url, {"email": self.customer.email}, format="json")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(mail.outbox), 1)
-        self.assertNotEqual(self.item.allocations.get().token, old_token)
+
+        self.customer.refresh_from_db()
+        self.assertNotEqual(self.customer.access_token, old_access_token)
+        self.assertTrue(self.customer.is_access_token_valid())
+        self.assertIn(str(self.customer.access_token), mail.outbox[0].body)
+
+    def test_file_tokens_survive_a_rotation(self):
+        """Rotating the page link must not break links to files the customer already shared."""
+
+        old_file_token = self.item.allocations.get().token
+
+        self.client.post(self.url, {"email": self.customer.email}, format="json")
+
+        self.assertEqual(self.item.allocations.get().token, old_file_token)
 
     def test_undelivered_paid_item_is_topped_up(self):
         """The blind "grab any sold file" workaround is gone: missing units are allocated properly."""
@@ -404,8 +458,8 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
 
     def payload(self, quantity: int = 2):
         return {
-            "user_email": "new@example.com",
-            "items": [{"passport_id": self.product.id, "quantity": quantity}],
+            "email": "new@example.com",
+            "items": [{"product_id": self.product.id, "quantity": quantity}],
         }
 
     def test_order_over_stock_is_rejected(self):
@@ -486,8 +540,8 @@ class CheckoutReuseTests(OrderItemFactoryMixin, TestCase):
 
     def payload(self, quantity: int = 1, product: Product | None = None):
         return {
-            "user_email": "new@example.com",
-            "items": [{"passport_id": (product or self.product).id, "quantity": quantity}],
+            "email": "new@example.com",
+            "items": [{"product_id": (product or self.product).id, "quantity": quantity}],
         }
 
     def checkout(self, payload, invoice_url: str = "https://plisio.net/invoice/1"):
@@ -558,7 +612,7 @@ class CheckoutReuseTests(OrderItemFactoryMixin, TestCase):
 
     def test_another_customer_does_not_reuse_the_invoice(self):
         self.checkout(self.payload())
-        other = self.payload() | {"user_email": "other@example.com"}
+        other = self.payload() | {"email": "other@example.com"}
 
         second, plisio = self.checkout(other, invoice_url="https://plisio.net/invoice/2")
 
@@ -589,26 +643,26 @@ class CheckoutLimitTests(OrderItemFactoryMixin, TestCase):
         self.url = reverse("order-create")
 
     def post(self, items):
-        return self.client.post(self.url, {"user_email": "new@example.com", "items": items}, format="json")
+        return self.client.post(self.url, {"email": "new@example.com", "items": items}, format="json")
 
     @override_settings(VALIDATE_EMAIL_MX=True)
     def test_an_undeliverable_email_domain_is_rejected(self):
         cache.clear()
         with patch.object(dns.resolver.Resolver, "resolve", side_effect=dns.resolver.NXDOMAIN):
-            response = self.post([{"passport_id": self.product.id, "quantity": 1}])
+            response = self.post([{"product_id": self.product.id, "quantity": 1}])
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("user_email", response.data)
+        self.assertIn("email", response.data)
         self.assertEqual(Customer.objects.filter(email="new@example.com").count(), 0)
 
     def test_quantity_over_the_cap_is_rejected(self):
-        response = self.post([{"passport_id": self.product.id, "quantity": settings.MAX_ITEM_QUANTITY + 1}])
+        response = self.post([{"product_id": self.product.id, "quantity": settings.MAX_ITEM_QUANTITY + 1}])
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Allocation.objects.count(), 0)
 
     def test_zero_quantity_is_rejected(self):
-        response = self.post([{"passport_id": self.product.id, "quantity": 0}])
+        response = self.post([{"product_id": self.product.id, "quantity": 0}])
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(OrderItem.objects.count(), 0)
@@ -619,7 +673,7 @@ class CheckoutLimitTests(OrderItemFactoryMixin, TestCase):
 
     def test_too_many_lines_are_rejected(self):
         items = [
-            {"passport_id": self.make_product(1, name=f"P{i}").id, "quantity": 1}
+            {"product_id": self.make_product(1, name=f"P{i}").id, "quantity": 1}
             for i in range(settings.MAX_ORDER_ITEMS + 1)
         ]
 
@@ -632,8 +686,8 @@ class CheckoutLimitTests(OrderItemFactoryMixin, TestCase):
         cap = settings.MAX_ITEM_QUANTITY
         response = self.post(
             [
-                {"passport_id": self.product.id, "quantity": cap},
-                {"passport_id": self.product.id, "quantity": cap},
+                {"product_id": self.product.id, "quantity": cap},
+                {"product_id": self.product.id, "quantity": cap},
             ]
         )
 
@@ -740,27 +794,228 @@ class StockItemDeletionTests(OrderItemFactoryMixin, TestCase):
         self.assertFalse(StockItem.objects.filter(pk=unit.pk).exists())
 
 
-class DownloadLinkMailTests(OrderItemFactoryMixin, TestCase):
+class PurchasesMailTests(OrderItemFactoryMixin, TestCase):
     def setUp(self):
         super().setUp()
         # get_current() resolves either by SITE_ID or by the request host - this covers both.
         Site.objects.update_or_create(pk=1, defaults={"domain": "testserver", "name": "test"})
 
-    def test_a_stale_token_is_reissued_instead_of_breaking_the_mail(self):
-        product = self.make_product(1)
-        item = self.make_item(product, quantity=1)
-        item.reserve()
-        allocations = item.deliver()
-
-        expired = timezone.now() - timedelta(hours=1)
-        Allocation.objects.filter(pk=allocations[0].pk).update(token_expires_at=expired)
-        allocations[0].token_expires_at = expired
-
+    def test_the_mail_carries_one_link_to_the_purchases_page(self):
+        self.customer.rotate_access_token()
         request = RequestFactory().post("/api/send-links/")
-        with self.assertLogs("sales.utils", level="WARNING"):
-            send_download_links(request, allocations, self.customer.email)
 
-        allocations[0].refresh_from_db()
-        self.assertTrue(allocations[0].is_token_valid())
+        send_purchases_link(request, self.customer)
+
         self.assertEqual(len(mail.outbox), 1)
-        self.assertIn(str(allocations[0].token), mail.outbox[0].body)
+        body = mail.outbox[0].body
+        self.assertIn(f"/purchases/{self.customer.access_token}", body)
+        # Sharing it hands over every purchase, so the warning is part of the contract.
+        self.assertIn("не пересылайте", body)
+
+    def test_no_file_links_are_listed(self):
+        item = self.make_item(self.make_product(1), quantity=1)
+        item.reserve()
+        allocation = item.deliver()[0]
+        self.customer.rotate_access_token()
+
+        send_purchases_link(RequestFactory().post("/api/send-links/"), self.customer)
+
+        self.assertNotIn(str(allocation.token), mail.outbox[0].body)
+
+
+class PurchasesPageTests(OrderItemFactoryMixin, TestCase):
+    """The token in the URL is the whole authentication, so its edges are the security boundary."""
+
+    def setUp(self):
+        super().setUp()
+        Site.objects.update_or_create(pk=1, defaults={"domain": "testserver", "name": "test"})
+
+        self.product = self.make_product(3)
+        self.item = self.make_item(self.product, quantity=2)
+        self.item.reserve()
+        self.item.deliver()
+        self.order.status = Order.OrderStatus.PAID
+        self.order.paid_at = timezone.now()
+        self.order.save(update_fields=["status", "paid_at"])
+
+        self.customer.rotate_access_token()
+        self.client = APIClient()
+
+    def page(self, token=None):
+        return self.client.get(reverse("purchases", args=[token or self.customer.access_token]))
+
+    def test_the_page_lists_paid_orders_with_their_files(self):
+        response = self.page()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["email"], self.customer.email)
+        self.assertEqual(len(response.data["orders"]), 1)
+
+        item = response.data["orders"][0]["items"][0]
+        self.assertEqual(item["product_name"], self.product.name)
+        self.assertEqual(len(item["allocations"]), 2)
+        self.assertTrue(all(a["is_downloadable"] for a in item["allocations"]))
+        self.assertTrue(all("/api/files/" in a["download_url"] for a in item["allocations"]))
+
+    def test_an_unpaid_order_is_not_listed(self):
+        pending = Order.objects.create(customer=self.customer, total_price=10)
+        self.make_item(self.product, quantity=1, order=pending).reserve()
+
+        response = self.page()
+
+        self.assertEqual(len(response.data["orders"]), 1)
+        self.assertEqual(response.data["orders"][0]["id"], self.order.id)
+
+    def test_a_released_allocation_is_not_listed(self):
+        """A unit given back is not a purchase - it must not show up as a downloadable file."""
+
+        self.item.allocations.update(state=Allocation.State.RELEASED)
+
+        response = self.page()
+
+        self.assertEqual(response.data["orders"][0]["items"][0]["allocations"], [])
+
+    def test_an_expired_token_is_404_and_says_nothing(self):
+        self.customer.access_token_expires_at = timezone.now() - timedelta(seconds=1)
+        self.customer.save(update_fields=["access_token_expires_at"])
+
+        response = self.page()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn(self.customer.email, str(response.data))
+
+    def test_an_unknown_token_answers_exactly_like_an_expired_one(self):
+        self.customer.access_token_expires_at = timezone.now() - timedelta(seconds=1)
+        self.customer.save(update_fields=["access_token_expires_at"])
+        expired = self.page().data
+
+        self.assertEqual(self.page(uuid.uuid4()).data, expired)
+
+    def test_an_expired_file_token_offers_no_url(self):
+        Allocation.objects.update(token_expires_at=timezone.now() - timedelta(seconds=1))
+
+        allocations = self.page().data["orders"][0]["items"][0]["allocations"]
+
+        self.assertTrue(all(a["is_downloadable"] is False for a in allocations))
+        self.assertTrue(all(a["download_url"] is None for a in allocations))
+
+
+class RefreshTokenTests(OrderItemFactoryMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        Site.objects.update_or_create(pk=1, defaults={"domain": "testserver", "name": "test"})
+
+        self.item = self.make_item(self.make_product(2), quantity=2)
+        self.item.reserve()
+        self.item.deliver()
+        self.order.status = Order.OrderStatus.PAID
+        self.order.save(update_fields=["status"])
+
+        self.customer.rotate_access_token()
+        self.client = APIClient()
+
+    def test_refreshing_one_file_leaves_the_others_alone(self):
+        first, second = self.item.allocations.order_by("pk")
+        url = reverse("purchases-refresh", args=[self.customer.access_token, first.pk])
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 200)
+        first.refresh_from_db()
+        second_after = self.item.allocations.get(pk=second.pk)
+        self.assertEqual(response.data["id"], first.pk)
+        self.assertTrue(first.is_token_valid())
+        self.assertEqual(second_after.token, second.token)
+
+    def test_an_expired_file_token_becomes_usable_again(self):
+        allocation = self.item.allocations.first()
+        Allocation.objects.filter(pk=allocation.pk).update(token_expires_at=timezone.now() - timedelta(seconds=1))
+
+        url = reverse("purchases-refresh", args=[self.customer.access_token, allocation.pk])
+        self.client.post(url)
+
+        allocation.refresh_from_db()
+        self.assertTrue(allocation.is_token_valid())
+
+    def test_somebody_elses_file_cannot_be_refreshed(self):
+        stranger = Customer.objects.create(email="stranger@example.com")
+        stranger.rotate_access_token()
+        allocation = self.item.allocations.first()
+
+        url = reverse("purchases-refresh", args=[stranger.access_token, allocation.pk])
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 404)
+        old_token = allocation.token
+        allocation.refresh_from_db()
+        self.assertEqual(allocation.token, old_token)
+
+    def test_refresh_all_reissues_every_file(self):
+        before = {a.pk: a.token for a in self.item.allocations.all()}
+
+        url = reverse("purchases-refresh-all", args=[self.customer.access_token])
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
+        after = {a.pk: a.token for a in self.item.allocations.all()}
+        self.assertEqual(before.keys(), after.keys())
+        self.assertTrue(all(before[pk] != after[pk] for pk in before))
+
+    def test_refreshing_with_a_dead_page_token_is_404(self):
+        self.customer.access_token_expires_at = timezone.now() - timedelta(seconds=1)
+        self.customer.save(update_fields=["access_token_expires_at"])
+
+        url = reverse("purchases-refresh-all", args=[self.customer.access_token])
+
+        self.assertEqual(self.client.post(url).status_code, 404)
+
+
+class MailOutageTests(OrderItemFactoryMixin, TestCase):
+    """A dead SMTP must not cost the customer their order or their link."""
+
+    def setUp(self):
+        super().setUp()
+        Site.objects.update_or_create(pk=1, defaults={"domain": "testserver", "name": "test"})
+
+        self.item = self.make_item(self.make_product(1), quantity=1)
+        self.item.reserve()
+        self.client = APIClient()
+
+    def test_a_paid_order_is_still_delivered_when_the_mail_fails(self):
+        payload = sign_plisio_payload(
+            {
+                "order_number": str(self.order.id),
+                "txn_id": "txn-mail-outage",
+                "status": "completed",
+                "amount": "0.001",
+                "currency": "BTC",
+                "source_currency": "USD",
+                "source_amount": "10.00",
+            }
+        )
+
+        with (
+            patch("sales.views.send_purchases_link", side_effect=OSError("smtp is down")),
+            self.assertLogs("sales.views", level="ERROR"),
+        ):
+            response = self.client.post(reverse("plisio-callback"), payload, format="json")
+
+        # 200, so Plisio stops retrying: a retry would deliver nothing new anyway.
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.OrderStatus.PAID)
+        self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
+
+    def test_the_form_says_so_instead_of_pretending_the_mail_went_out(self):
+        self.item.deliver()
+        self.order.status = Order.OrderStatus.PAID
+        self.order.save(update_fields=["status"])
+
+        with (
+            patch("sales.views.send_purchases_link", side_effect=OSError("smtp is down")),
+            self.assertLogs("sales.views", level="ERROR"),
+        ):
+            response = self.client.post(reverse("send-links"), {"email": self.customer.email}, format="json")
+
+        self.assertEqual(response.status_code, 502)

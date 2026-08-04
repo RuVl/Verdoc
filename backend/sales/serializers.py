@@ -6,18 +6,13 @@ from rest_framework import serializers
 from catalog.models import Product
 from customer.models import Customer
 from customer.validators import validate_email_domain
-from sales.models import Order, OrderItem
+from sales.models import Allocation, Order, OrderItem
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
-    """
-    OrderItem serializer for OrderSerializer.
+    """OrderItem serializer for OrderSerializer. Accepts only product_id and quantity."""
 
-    Accepts only passport_id and quantity - the storefront keeps its own wording until R2, hence
-    the field name pointing at `product`.
-    """
-
-    passport_id = serializers.PrimaryKeyRelatedField(
+    product_id = serializers.PrimaryKeyRelatedField(
         queryset=Product.objects.all(),
         source="product",
     )
@@ -25,7 +20,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ["passport_id", "quantity"]
+        fields = ["product_id", "quantity"]
 
     def validate_quantity(self, value):
         # Read at call time so the cap can be overridden per deployment and in tests.
@@ -39,11 +34,10 @@ class OrderSerializer(serializers.ModelSerializer):
     """
     Order serializer for making an order.
 
-    Accepts only user_email and a list of items; the price is computed here, never taken from the
-    client. `user_email` is the API name of the customer's email until R2.
+    Accepts only email and a list of items; the price is computed here, never taken from the client.
     """
 
-    user_email = serializers.EmailField(write_only=True, validators=[validate_email_domain])
+    email = serializers.EmailField(write_only=True, validators=[validate_email_domain])
     items = OrderItemSerializer(many=True, allow_empty=False)
     total_price = serializers.DecimalField(
         max_digits=10,
@@ -53,7 +47,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Order
-        fields = ["user_email", "items", "total_price"]
+        fields = ["email", "items", "total_price"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -83,7 +77,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
         data["total_price"] = total_price
 
-        self.reused_order = Order.objects.reusable(data["user_email"], data["items"])
+        self.reused_order = Order.objects.reusable(data["email"], data["items"])
         if self.reused_order is not None:
             # Its units are already reserved - an availability check here would refuse the customer
             # their own reservation.
@@ -103,7 +97,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
         items_data = validated_data.pop("items")
         total_price = validated_data.pop("total_price")
-        customer, _ = Customer.objects.get_or_create(email=validated_data.pop("user_email"))
+        customer, _ = Customer.objects.get_or_create(email=validated_data.pop("email"))
 
         order = Order.objects.create(customer=customer, total_price=total_price, **validated_data)
 
@@ -130,3 +124,42 @@ class SendDownloadLinksSerializer(serializers.Serializer):
     """
 
     email = serializers.EmailField()
+
+
+class AllocationSerializer(serializers.ModelSerializer):
+    """One downloadable file on the purchases page."""
+
+    is_downloadable = serializers.BooleanField(source="is_token_valid", read_only=True)
+    download_url = serializers.SerializerMethodField()
+    expires_at = serializers.DateTimeField(source="token_expires_at", read_only=True)
+
+    class Meta:
+        model = Allocation
+        fields = ["id", "is_downloadable", "download_url", "expires_at"]
+
+    def get_download_url(self, obj: Allocation) -> str | None:
+        # No link at all rather than a dead one: an expired token has to be refreshed first.
+        if not obj.is_token_valid():
+            return None
+
+        return obj.get_download_url(self.context.get("request"))
+
+
+class PurchaseItemSerializer(serializers.ModelSerializer):
+    """A bought position, named and priced as of the day it was bought."""
+
+    allocations = AllocationSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = ["id", "product_name", "unit_price", "unit_price_currency", "quantity", "allocations"]
+
+
+class PurchaseOrderSerializer(serializers.ModelSerializer):
+    """One paid order with everything the customer can download from it."""
+
+    items = PurchaseItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ["id", "status", "total_price", "total_price_currency", "created_at", "paid_at", "items"]

@@ -3,25 +3,26 @@ import logging
 from django.core.mail import send_mail
 from django.http import HttpRequest
 
-from sales.models import Allocation
+from customer.models import Customer
 
 logger = logging.getLogger(__name__)
 
 
-def send_download_links(request: HttpRequest, allocations: list[Allocation], user_email: str) -> int:
-    """Send download links to email"""
+def send_purchases_link(request: HttpRequest | None, customer: Customer) -> int:
+    """
+    Mail the customer the single link to their purchases page.
 
-    message = "Скачайте ваши файлы по ссылке:\n"
+    One link instead of one per file: the page lists every paid order and refreshes its own
+    download links, so an e-mail cannot go stale the way a list of file links did.
+    """
 
-    for i, allocation in enumerate(allocations):
-        if not allocation.is_token_valid():
-            logger.warning(f"Allocation {allocation.pk} had no usable token at send time, issuing a new one")
-            allocation.issue_token()
-
-        message += f"{i + 1}) {allocation.get_download_url(request)} - {allocation.order_item.product_name}\n"
-
-    message += (
-        "Ссылки будут действительны в течение 24 часов. "
-        "После этого необходимо запросить доступ повторно через форму на сайте."
+    message = (
+        "Ваши покупки доступны по ссылке:\n"
+        f"{customer.get_purchases_url(request)}\n\n"
+        "Ссылка действует 24 часа и открывает ВСЕ ваши покупки - не пересылайте её никому. "
+        "Если срок истёк, запросите новую через форму на сайте.\n"
+        "Ссылки на отдельные файлы обновляются прямо на странице покупок."
     )
-    return send_mail("Ваш заказ выполнен", message, None, [user_email])
+    logger.info(f"Sending the purchases link to customer {customer.pk}")
+
+    return send_mail("Ваш заказ выполнен", message, None, [customer.email])

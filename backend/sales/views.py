@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.sites.models import Site
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import FileResponse, HttpResponseNotFound
 from djmoney.money import Money
 from rest_framework import status
@@ -18,8 +19,13 @@ from rest_framework.views import APIView
 
 from customer.models import Customer
 from sales.models import Allocation, Order, PaymentCallbackLog, Transaction
-from sales.serializers import OrderSerializer, SendDownloadLinksSerializer
-from sales.utils import send_download_links
+from sales.serializers import (
+    AllocationSerializer,
+    OrderSerializer,
+    PurchaseOrderSerializer,
+    SendDownloadLinksSerializer,
+)
+from sales.utils import send_purchases_link
 
 logger = logging.getLogger(__name__)
 
@@ -174,8 +180,17 @@ class PlisioCallbackView(APIView):
         # A duplicate callback delivers nothing new and must not send a second email.
         if first_payment and allocations:
             customer = order.customer
-            customer.rotate_access_token()
-            send_download_links(request, allocations, customer.email)
+            # Deliberately not a rotation: a second purchase must not revoke the link the customer
+            # got with the first one and may still have open.
+            customer.ensure_access_token()
+
+            try:
+                send_purchases_link(request, customer)
+            except Exception as e:
+                # The sale itself went through and the files are allocated - failing the callback
+                # here would only make Plisio retry, and the retry sends nothing because paid_at is
+                # already stamped. The customer gets their link from the form on the site.
+                logger.error(f"Order {order.id} is delivered but the e-mail did not go out: {e}")
 
         return Response(
             {"detail": "Order and transaction status updated"},
@@ -228,8 +243,42 @@ class PlisioCallbackView(APIView):
         return txn
 
 
-class DownloadLinksView(views.View):
-    """Download delivered files view"""
+def serve_allocation(allocation: Allocation):
+    """Stream the file behind an allocation, or 404 - never say which of the checks failed."""
+
+    if not allocation.is_token_valid():
+        return HttpResponseNotFound("Expired download link")
+
+    if allocation.stock_item is None:
+        logger.error(f"Allocation {allocation.id} has no file to serve")
+        return HttpResponseNotFound()
+
+    return FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)
+
+
+class DownloadFileView(views.View):
+    """Download one delivered file by its token alone."""
+
+    def get(self, request, *args, **kwargs):
+        token = self.kwargs.get("uuid")
+        if token is None:
+            return HttpResponseNotFound()
+
+        try:
+            allocation = Allocation.objects.select_related("stock_item").downloadable().get(token=token)
+        except (Allocation.DoesNotExist, ValidationError, ValueError):
+            return HttpResponseNotFound()
+
+        return serve_allocation(allocation)
+
+
+class LegacyDownloadLinksView(views.View):
+    """
+    The pre-R2 download route, `/api/order/file/<email>/<uuid>/`.
+
+    Kept for one release: links from e-mails sent before R2 are still in customers' inboxes and
+    have to keep working until their tokens expire.
+    """
 
     def get(self, request, *args, **kwargs):
         email = self.kwargs.get("email")
@@ -239,22 +288,18 @@ class DownloadLinksView(views.View):
             return HttpResponseNotFound()
 
         try:
-            allocation = Allocation.objects.select_related("stock_item").get(
-                token=token,
-                state=Allocation.State.DELIVERED,
-                order_item__order__customer__email=email,
+            allocation = (
+                Allocation.objects.select_related("stock_item")
+                .downloadable()
+                .get(
+                    token=token,
+                    order_item__order__customer__email=email,
+                )
             )
         except (Allocation.DoesNotExist, ValidationError, ValueError):
             return HttpResponseNotFound()
 
-        if not allocation.is_token_valid():
-            return HttpResponseNotFound("Expired download link")
-
-        if allocation.stock_item is None:
-            logger.error(f"Allocation {allocation.id} has no file to serve")
-            return HttpResponseNotFound()
-
-        return FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)
+        return serve_allocation(allocation)
 
 
 class SendDownloadLinksView(APIView):
@@ -273,18 +318,93 @@ class SendDownloadLinksView(APIView):
         if not orders:
             return HttpResponseNotFound()
 
-        allocations = []
         try:
             with transaction.atomic():
                 for order in orders:
                     # Idempotent, and it tops up anything an old sale failed to hand over.
                     order.deliver()
-                    allocations.extend(order.refresh_download_tokens())
 
+                # This is the "revoke the old link" mechanism: whoever holds the previous purchases
+                # URL loses it here. File tokens are left alone - the page refreshes them itself.
                 customer.rotate_access_token()
         except ValueError as e:
             logger.warning(f"Cannot re-issue links for {user_email}: {e}")
             return Response({"detail": "Order processing conflict"}, status=status.HTTP_409_CONFLICT)
 
-        send_download_links(request, allocations, user_email)
-        return Response({"detail": "All links are sent"}, status=status.HTTP_200_OK)
+        try:
+            send_purchases_link(request, customer)
+        except Exception as e:
+            # The token was already rotated, so the previous link is gone either way - the customer
+            # has to be told to try again rather than left staring at a success message.
+            logger.error(f"Cannot mail the purchases link to {user_email}: {e}")
+            return Response({"detail": "Cannot send the e-mail right now"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response({"detail": "The link is sent"}, status=status.HTTP_200_OK)
+
+
+# One answer for an unknown, malformed or expired token: the page must not confirm that a token
+# exists, and the customer's next step is the same either way.
+PURCHASES_GONE = "This link is no longer valid - request a new one from the site."
+
+
+def customer_by_token(token) -> Customer | None:
+    """Resolve a purchases-page token, or None if it is unusable for any reason."""
+
+    try:
+        customer = Customer.objects.get(access_token=token)
+    except (Customer.DoesNotExist, ValidationError, ValueError):
+        return None
+
+    return customer if customer.is_access_token_valid() else None
+
+
+class PurchasesView(APIView):
+    """Everything this customer has paid for, with the state of every download link."""
+
+    def get(self, request, *args, **kwargs):
+        customer = customer_by_token(kwargs.get("token"))
+        if customer is None:
+            return Response({"detail": PURCHASES_GONE}, status=status.HTTP_404_NOT_FOUND)
+
+        orders = (
+            customer.orders.filter(status__in=Order.PAID_STATUSES)
+            .prefetch_related(
+                "items",
+                Prefetch("items__allocations", queryset=Allocation.objects.downloadable()),
+            )
+            .order_by("-paid_at", "-created_at")
+        )
+
+        serializer = PurchaseOrderSerializer(orders, many=True, context={"request": request})
+        return Response({"email": customer.email, "orders": serializer.data})
+
+
+class RefreshAllocationView(APIView):
+    """New token for one file - what the "refresh link" button calls."""
+
+    def post(self, request, *args, **kwargs):
+        customer = customer_by_token(kwargs.get("token"))
+        if customer is None:
+            return Response({"detail": PURCHASES_GONE}, status=status.HTTP_404_NOT_FOUND)
+
+        # Scoped to the customer, so a valid token cannot be used to refresh somebody else's file.
+        allocations = Allocation.objects.downloadable().of_customer(customer).filter(pk=kwargs.get("allocation_id"))
+        refreshed = allocations.reissue_tokens()
+        if not refreshed:
+            return Response({"detail": "No such file in your purchases"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AllocationSerializer(refreshed[0], context={"request": request})
+        return Response(serializer.data)
+
+
+class RefreshAllAllocationsView(APIView):
+    """New tokens for every file of this customer, in one go."""
+
+    def post(self, request, *args, **kwargs):
+        customer = customer_by_token(kwargs.get("token"))
+        if customer is None:
+            return Response({"detail": PURCHASES_GONE}, status=status.HTTP_404_NOT_FOUND)
+
+        refreshed = Allocation.objects.downloadable().of_customer(customer).reissue_tokens()
+        serializer = AllocationSerializer(refreshed, many=True, context={"request": request})
+        return Response(serializer.data)

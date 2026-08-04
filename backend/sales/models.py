@@ -164,20 +164,10 @@ class Order(models.Model):
 
         return allocations
 
-    @atomic
     def refresh_download_tokens(self) -> list["Allocation"]:
         """Issue new tokens for everything already delivered, resetting DOWNLOAD_TTL."""
 
-        allocations = list(
-            Allocation.objects.select_for_update()
-            .filter(order_item__order=self, state=Allocation.State.DELIVERED)
-            .select_related("order_item")
-        )
-        for allocation in allocations:
-            allocation.issue_token(commit=False)
-
-        Allocation.objects.bulk_update(allocations, ["token", "token_expires_at"])
-        return allocations
+        return Allocation.objects.filter(order_item__order=self).downloadable().reissue_tokens()
 
 
 class OrderItem(models.Model):
@@ -304,6 +294,27 @@ class OrderItem(models.Model):
         return reserved
 
 
+class AllocationQuerySet(models.QuerySet):
+    def downloadable(self) -> "AllocationQuerySet":
+        """Units already handed over - the only ones the purchases page lists."""
+
+        return self.filter(state=Allocation.State.DELIVERED)
+
+    def of_customer(self, customer) -> "AllocationQuerySet":
+        return self.filter(order_item__order__customer=customer)
+
+    @atomic
+    def reissue_tokens(self) -> list["Allocation"]:
+        """Give every selected unit a fresh token, resetting DOWNLOAD_TTL. Idempotent by nature."""
+
+        allocations = list(self.select_for_update())
+        for allocation in allocations:
+            allocation.issue_token(commit=False)
+
+        Allocation.objects.bulk_update(allocations, ["token", "token_expires_at"])
+        return allocations
+
+
 class Allocation(models.Model):
     """
     The link between one stock unit and one order item - the single source of truth about who
@@ -339,6 +350,8 @@ class Allocation(models.Model):
     token = models.UUIDField(null=True, blank=True, unique=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
 
+    objects = AllocationQuerySet.as_manager()
+
     class Meta:
         verbose_name = _("Allocation")
         verbose_name_plural = _("Allocations")
@@ -367,8 +380,14 @@ class Allocation(models.Model):
             self.save(update_fields=["token", "token_expires_at"])
 
     def get_download_url(self, request: HttpRequest | None) -> str:
-        email = self.order_item.order.customer.email
-        relative_path = reverse("download-file", args=[email, self.token])
+        """
+        Absolute link to this one file.
+
+        The token alone identifies it - the e-mail used to be part of the path and proved nothing,
+        since it travelled in the same message as the token.
+        """
+
+        relative_path = reverse("download-file", args=[self.token])
         return f"{settings.SITE_SCHEME}://{Site.objects.get_current(request).domain}{relative_path}"
 
 

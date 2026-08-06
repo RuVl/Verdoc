@@ -34,7 +34,8 @@ if not DEBUG:
 # Application definition
 INSTALLED_APPS = [
     "modeltranslation",
-    "django.contrib.admin",
+    # Stands in for "django.contrib.admin": same app, our AdminSite (see backend/admin.py).
+    "backend.apps.VerdocAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

@@ -1,1 +1,2 @@
 */10 * * * * /app/.venv/bin/python /app/manage.py expire_transactions >> /var/log/cron.log 2>&1
+*/15 * * * * /app/.venv/bin/python /app/manage.py broadcast >> /var/log/cron.log 2>&1

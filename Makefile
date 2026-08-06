@@ -179,7 +179,7 @@ dev-superuser: dev-infra ## Создать суперпользователя в
 
 .PHONY: dev-test
 dev-test: dev-infra ## Тесты локальным backend (t="sales.tests.DeliverTests" - только часть)
-	$(MANAGE_DEV) test $(if $(t),$(t),catalog customer sales)
+	$(MANAGE_DEV) test $(if $(t),$(t),catalog customer mailing sales)
 
 # --- Django (внутри контейнера backend) -------------------------------------
 
@@ -197,7 +197,7 @@ makemigrations: ## Создать миграции: make makemigrations m="catal
 
 .PHONY: test
 test: ## Тесты в контейнере (t="sales" - только часть)
-	$(MANAGE) test $(if $(t),$(t),catalog customer sales)
+	$(MANAGE) test $(if $(t),$(t),catalog customer mailing sales)
 
 .PHONY: collectstatic
 collectstatic: ## Собрать статику
@@ -216,6 +216,10 @@ update-rates: ## Обновить курсы валют (djmoney)
 .PHONY: expire
 expire: ## Снять резерв с просроченных заказов
 	$(MANAGE) expire_transactions
+
+.PHONY: broadcast
+broadcast: ## Разослать письма из очереди (QUEUED); флаги: c="--id N --dry-run --test"
+	$(MANAGE) broadcast $(c)
 
 # --- База данных: дамп / импорт ---------------------------------------------
 

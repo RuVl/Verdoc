@@ -26,6 +26,9 @@ secrets/
 # lands next to manage.py - in the container that is /app, locally it is backend/.
 backend/products/
 
+# Collected static files (collectstatic)
+backend/static/
+
 # Test docker-compose
 test*.yml
 

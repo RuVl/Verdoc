@@ -39,6 +39,7 @@ Table catalog_stockitem {
   id integer [primary key]
   file varchar [unique]
   product_id integer [null, ref: > catalog_product.id, note: "SET_NULL"]
+  created_at datetime [null, note: "NULL у строк, заведённых до появления поля"]
   // status удалён: состояние живёт на Allocation, см. ADR-0001
 }
 
@@ -89,6 +90,9 @@ Table sales_allocation {
   released_at datetime [null]
   token uuid [null, unique, note: "открывает один файл"]
   token_expires_at datetime [null]
+  download_count integer [note: "пишет serve_allocation(), см. R4"]
+  first_downloaded_at datetime [null]
+  last_downloaded_at datetime [null]
 
   indexes {
     (stock_item_id) [unique, name: "one_active_allocation_per_stock_item"]

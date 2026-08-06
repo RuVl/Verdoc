@@ -283,36 +283,6 @@ class DownloadFileView(views.View):
         return serve_allocation(allocation)
 
 
-class LegacyDownloadLinksView(views.View):
-    """
-    The pre-R2 download route, `/api/order/file/<email>/<uuid>/`.
-
-    Kept for one release: links from e-mails sent before R2 are still in customers' inboxes and
-    have to keep working until their tokens expire.
-    """
-
-    def get(self, request, *args, **kwargs):
-        email = self.kwargs.get("email")
-        token = self.kwargs.get("uuid")
-
-        if email is None or token is None:
-            return HttpResponseNotFound()
-
-        try:
-            allocation = (
-                Allocation.objects.select_related("stock_item")
-                .downloadable()
-                .get(
-                    token=token,
-                    order_item__order__customer__email=email,
-                )
-            )
-        except (Allocation.DoesNotExist, ValidationError, ValueError):
-            return HttpResponseNotFound()
-
-        return serve_allocation(allocation)
-
-
 class SendDownloadLinksView(APIView):
     """Refresh download links and send them to customer's email"""
 

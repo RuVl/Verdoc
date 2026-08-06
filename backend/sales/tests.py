@@ -426,25 +426,6 @@ class DownloadCounterTests(ServedFilesMixin, TestCase):
         self.assertEqual(self.allocation.download_count, 2)
 
 
-class LegacyDownloadTests(ServedFilesMixin, TestCase):
-    """Links from e-mails sent before R2 keep working until their tokens expire."""
-
-    def download(self, email: str, token) -> int:
-        return self.client.get(reverse("download-file-legacy", args=[email, token])).status_code
-
-    def test_the_old_link_still_serves_the_file(self):
-        self.assertEqual(self.download(self.customer.email, self.allocation.token), 200)
-
-    def test_someone_elses_email_is_not_served(self):
-        self.assertEqual(self.download("other@example.com", self.allocation.token), 404)
-
-    def test_expired_token_is_not_served(self):
-        self.allocation.token_expires_at = timezone.now() - timedelta(seconds=1)
-        self.allocation.save(update_fields=["token_expires_at"])
-
-        self.assertEqual(self.download(self.customer.email, self.allocation.token), 404)
-
-
 class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
     def setUp(self):
         super().setUp()

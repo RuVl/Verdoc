@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: verdoc-backend\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-06 15:49+0000\n"
+"POT-Creation-Date: 2026-08-06 15:51+0000\n"
 "PO-Revision-Date: 2026-08-06 15:49+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -19,6 +19,7 @@ msgstr ""
 "Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
 "n%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || "
 "(n%100>=11 && n%100<=14)? 2 : 3);\n"
+
 #: catalog/models.py:33 passport/models.py:32
 msgid "Country"
 msgstr ""
@@ -134,3 +135,22 @@ msgstr ""
 #: sales/models.py:490
 msgid "Payment callbacks"
 msgstr ""
+
+#: sales/utils.py:26
+msgid "Your purchases are available at:"
+msgstr "Ваши покупки доступны по ссылке:"
+
+#: sales/utils.py:29
+msgid ""
+"The link is valid for 24 hours and opens ALL of your purchases - do not "
+"forward it to anyone. If it has expired, request a new one through the form "
+"on the site.\n"
+"Links to individual files are refreshed on the purchases page itself."
+msgstr ""
+"Ссылка действует 24 часа и открывает ВСЕ ваши покупки - не пересылайте её "
+"никому. Если срок истёк, запросите новую через форму на сайте.\n"
+"Ссылки на отдельные файлы обновляются прямо на странице покупок."
+
+#: sales/utils.py:34
+msgid "Your order is complete"
+msgstr "Ваш заказ выполнен"

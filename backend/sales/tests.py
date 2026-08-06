@@ -17,7 +17,7 @@ from django.core.management import call_command
 from django.db.models import ProtectedError
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
 from rest_framework.test import APIClient
 
 from catalog.models import Country, Product, StockItem
@@ -529,6 +529,18 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
 
         self.assertEqual(Customer.objects.get(email="new@example.com").language, "ru")
 
+    def test_the_invoice_is_opened_in_the_customers_language(self):
+        with patch("sales.views.requests.get") as plisio:
+            plisio.return_value.status_code = 200
+            plisio.return_value.json.return_value = {
+                "status": "success",
+                "data": {"invoice_url": "https://plisio.net/invoice/1"},
+            }
+
+            self.client.post(self.url, self.payload() | {"language": "ru"}, format="json")
+
+        self.assertEqual(plisio.call_args.kwargs["params"]["language"], "ru_RU")
+
     def test_checkout_rejects_a_language_the_site_does_not_speak(self):
         response = self.client.post(self.url, self.payload() | {"language": "de"}, format="json")
 
@@ -830,7 +842,26 @@ class PurchasesMailTests(OrderItemFactoryMixin, TestCase):
         body = mail.outbox[0].body
         self.assertIn(f"/purchases/{self.customer.access_token}", body)
         # Sharing it hands over every purchase, so the warning is part of the contract.
-        self.assertIn("не пересылайте", body)
+        self.assertIn("do not forward it", body)
+
+    def test_a_russian_customer_is_written_to_in_russian(self):
+        self.customer.set_language("ru")
+        self.customer.rotate_access_token()
+
+        send_purchases_link(RequestFactory().post("/api/send-links/"), self.customer)
+
+        self.assertEqual(mail.outbox[0].subject, "Ваш заказ выполнен")
+        self.assertIn("не пересылайте", mail.outbox[0].body)
+
+    def test_the_language_comes_from_the_customer_not_the_active_one(self):
+        """The delivery mail is sent from the Plisio webhook, where no customer locale is active."""
+        self.customer.set_language("ru")
+        self.customer.rotate_access_token()
+
+        with translation.override("en"):
+            send_purchases_link(None, self.customer)
+
+        self.assertIn("не пересылайте", mail.outbox[0].body)
 
     def test_no_file_links_are_listed(self):
         item = self.make_item(self.make_product(1), quantity=1)

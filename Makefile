@@ -178,7 +178,7 @@ dev-superuser: dev-infra ## Создать суперпользователя в
 	$(MANAGE_DEV) createsuperuser
 
 .PHONY: dev-test
-dev-test: dev-infra ## Тесты локальным backend (t="sales.tests.DeliverTests" - только часть)
+dev-test: dev-infra dev-compilemessages ## Тесты локальным backend (t="sales.tests.DeliverTests" - только часть)
 	$(MANAGE_DEV) test $(if $(t),$(t),catalog customer mailing sales)
 
 .PHONY: dev-messages
@@ -204,7 +204,7 @@ makemigrations: ## Создать миграции: make makemigrations m="catal
 	$(MANAGE) makemigrations $(m)
 
 .PHONY: test
-test: ## Тесты в контейнере (t="sales" - только часть)
+test: compilemessages ## Тесты в контейнере (t="sales" - только часть)
 	$(MANAGE) test $(if $(t),$(t),catalog customer mailing sales)
 
 .PHONY: collectstatic

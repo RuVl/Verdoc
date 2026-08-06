@@ -42,6 +42,12 @@ STATUS_MAP = {
     "cancelled duplicate": Order.OrderStatus.PENDING,  # A customer has switched to another cryptocurrency
 }
 
+# Our language codes -> the locales Plisio names its checkout in. Anything else falls back to en_US.
+PLISIO_LANGUAGES = {
+    "en": "en_US",
+    "ru": "ru_RU",
+}
+
 
 class OrderCreateView(APIView):
     """Create a new order endpoint"""
@@ -75,7 +81,7 @@ class OrderCreateView(APIView):
             "source_amount": order.total_price.amount,
             "email": order.customer.email,
             "api_key": secret_key,
-            "language": "en_US",
+            "language": PLISIO_LANGUAGES.get(order.customer.language, "en_US"),
             "expire_min": "60",
         }
 

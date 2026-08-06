@@ -85,6 +85,26 @@ class BroadcastEmailTests(TestCase):
         self.assertIn("Hello", message.body)
         self.assertNotIn("<p>", message.body)
 
+    def test_the_footer_is_in_the_customers_language(self):
+        self.assertIn("Отписаться от рассылки", self.build().body)
+
+    def test_a_customer_gets_the_translation_of_their_language(self):
+        self.broadcast.subject_ru = "Новости"
+        self.broadcast.body_ru = "<p>Привет</p>"
+        self.broadcast.save()
+
+        message = self.build()
+
+        self.assertEqual(message.subject, "Новости")
+        self.assertIn("Привет", message.body)
+
+    def test_an_untranslated_broadcast_falls_back_to_the_site_default(self):
+        """A language the author left empty must still reach its readers, in the other language."""
+        message = self.build()
+
+        self.assertEqual(message.subject, "News")
+        self.assertIn("Hello", message.body)
+
 
 class BroadcastCommandTests(TestCase):
     """The ledger is what makes the sender resumable - these are the invariants it buys."""
@@ -159,8 +179,26 @@ class BroadcastCommandTests(TestCase):
     def test_a_test_run_writes_no_ledger_rows(self):
         self.run_broadcast(test=True)
 
-        self.assertEqual([message.to for message in mail.outbox], [["tester@example.com"]])
+        self.assertEqual({address for message in mail.outbox for address in message.to}, {"tester@example.com"})
         self.assertEqual(BroadcastDelivery.objects.count(), 0)
+
+    def test_a_test_run_sends_one_message_per_language(self):
+        self.broadcast.subject_ru = "Новости"
+        self.broadcast.save()
+
+        self.run_broadcast(test=True)
+
+        self.assertEqual({message.subject for message in mail.outbox}, {"News", "Новости"})
+
+    def test_each_customer_is_written_to_in_their_own_language(self):
+        self.broadcast.subject_ru = "Новости"
+        self.broadcast.save()
+        self.first.set_language("ru")
+
+        self.run_broadcast()
+
+        by_address = {message.to[0]: message.subject for message in mail.outbox}
+        self.assertEqual(by_address, {"one@example.com": "Новости", "two@example.com": "News"})
 
     def test_a_dry_run_sends_nothing_and_plans_nothing(self):
         self.run_broadcast(dry_run=True)
@@ -188,6 +226,18 @@ class BroadcastAdminTests(TestCase):
 
         admin_user = User.objects.create_superuser("admin", "admin@example.com", "pw")
         self.client.force_login(admin_user)
+
+    def test_every_language_gets_its_own_editor(self):
+        """TranslationAdmin copies the form's widget onto each language field - proof it still does."""
+        response = self.client.get(reverse("admin:mailing_broadcast_add"))
+        page = response.content.decode()
+
+        self.assertContains(response, 'name="body_en"')
+        self.assertContains(response, 'name="body_ru"')
+        # The editor is what `data-mce-conf` marks; the class attribute also carries
+        # modeltranslation's own classes, so it is not the thing to match on.
+        self.assertEqual(page.count("data-mce-conf"), 2)
+        self.assertIn("tinymce.min.js", page)
 
     def test_the_counts_follow_the_delivery_rows(self):
         with patch("mailing.management.commands.broadcast.build_broadcast_email") as build:

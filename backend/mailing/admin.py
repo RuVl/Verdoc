@@ -1,10 +1,12 @@
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.core.mail import get_connection
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html_join
+from modeltranslation.admin import TranslationAdmin
 from tinymce.widgets import TinyMCE
 
 from customer.models import Customer
@@ -21,8 +23,10 @@ HELP_HTML = (
     "<p><b>How sending works.</b> Creating a broadcast only saves a <b>draft</b> - it does not send. "
     "Flow:</p>"
     "<ol>"
-    "<li>Fill in subject and body, save the draft.</li>"
-    "<li>Select it in the list and run <b>Send test email</b> to preview it on <code>test_email</code>.</li>"
+    "<li>Fill in subject and body <b>for every language</b>, save the draft. A language you leave "
+    "empty falls back to the site default, so those customers get the wrong one silently.</li>"
+    "<li>Select it in the list and run <b>Send test email</b> - one message per language lands "
+    "on <code>test_email</code>.</li>"
     "<li>Run <b>Queue / re-queue selected for sending</b>. A cron job sends the queue about every 15 minutes.</li>"
     "<li>One email per recipient goes to every paid buyer who has not opted out. "
     "Watch <code>status</code> and the sent / failed counts.</li>"
@@ -36,11 +40,13 @@ class BroadcastAdminForm(forms.ModelForm):
     class Meta:
         model = Broadcast
         fields = "__all__"
+        # Keyed by the untranslated name on purpose: TranslationAdmin copies this widget onto
+        # every language field, so each of body_en / body_ru gets its own editor.
         widgets = {"body": TinyMCE(attrs={"cols": 80, "rows": 20})}
 
 
 @admin.register(Broadcast)
-class BroadcastAdmin(admin.ModelAdmin):
+class BroadcastAdmin(TranslationAdmin):
     form = BroadcastAdminForm
     list_display = (
         "id",
@@ -53,7 +59,7 @@ class BroadcastAdmin(admin.ModelAdmin):
         "sent_at",
     )
     list_filter = ("status", "created_at")
-    search_fields = ("subject",)
+    search_fields = ("subject_en", "subject_ru")
     readonly_fields = (
         "status",
         "recipients_count",
@@ -137,12 +143,15 @@ class BroadcastAdmin(admin.ModelAdmin):
         if not broadcast.test_email:
             self.message_user(request, f"Broadcast {broadcast.id}: no test_email set", messages.WARNING)
             return
-        # Unsaved stand-in: the test address is an arbitrary inbox, not necessarily a customer.
-        recipient = Customer(email=broadcast.test_email)
 
         connection = get_connection()  # opened lazily on first send()
         try:
-            build_broadcast_email(connection, broadcast, recipient, request).send()
+            for language, _label in settings.LANGUAGES:
+                # Unsaved stand-in: the test address is an arbitrary inbox, not a customer. One
+                # message per language, because that is what there is to proof-read.
+                recipient = Customer(email=broadcast.test_email, language=language)
+                build_broadcast_email(connection, broadcast, recipient, request).send()
+
             self.message_user(
                 request, f"Broadcast {broadcast.id}: test sent to {broadcast.test_email}", messages.SUCCESS
             )

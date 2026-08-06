@@ -1,6 +1,7 @@
 import logging
 import time
 
+from django.conf import settings
 from django.core.mail import get_connection
 from django.core.management.base import BaseCommand, CommandError
 
@@ -47,7 +48,12 @@ class Command(BaseCommand):
                 self._send_one(broadcast, dry_run=dry_run)
 
     def _send_test(self, broadcast: Broadcast, dry_run: bool):
-        """A test run never touches the delivery ledger - the address need not be a customer."""
+        """
+        A test run never touches the delivery ledger - the address need not be a customer.
+
+        One message per language: both versions are what there is to proof-read.
+        """
+
         if not broadcast.test_email:
             raise CommandError(f"Broadcast {broadcast.id} has no test_email.")
 
@@ -57,7 +63,9 @@ class Command(BaseCommand):
 
         connection = get_connection()
         try:
-            build_broadcast_email(connection, broadcast, Customer(email=broadcast.test_email)).send()
+            for language, _label in settings.LANGUAGES:
+                recipient = Customer(email=broadcast.test_email, language=language)
+                build_broadcast_email(connection, broadcast, recipient).send()
         finally:
             connection.close()
 

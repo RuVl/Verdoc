@@ -3,6 +3,7 @@ from django.contrib.sites.models import Site
 from django.core import signing
 from django.core.mail import EmailMultiAlternatives
 from django.http import HttpRequest
+from django.utils import translation
 from django.utils.html import strip_tags
 from django.utils.translation import gettext as _
 
@@ -50,21 +51,29 @@ def build_broadcast_email(
     customer: Customer,
     request: HttpRequest | None = None,
 ) -> EmailMultiAlternatives:
-    """Build a per-recipient email with an unsubscribe footer and List-Unsubscribe header."""
-    unsubscribe_url = make_unsubscribe_url(customer, request)
-    unsubscribe_label = _("Unsubscribe from this mailing list")
+    """
+    Build a per-recipient email with an unsubscribe footer and List-Unsubscribe header.
 
-    # broadcast.body is HTML (WYSIWYG); derive a plain-text alternative from it.
-    text_body = f"{strip_tags(broadcast.body)}\n\n--\n{unsubscribe_label}: {unsubscribe_url}"
+    Everything is read under the customer's language, so `subject` and `body` resolve to their
+    translation - one broadcast reaches a bilingual audience in both languages, and a language
+    the author left empty falls back to the site default.
+    """
+
+    unsubscribe_url = make_unsubscribe_url(customer, request)
+
+    with translation.override(customer.language):
+        unsubscribe_label = _("Unsubscribe from this mailing list")
+        subject, body = broadcast.subject, broadcast.body
+
+    # The body is HTML (WYSIWYG); derive a plain-text alternative from it.
+    text_body = f"{strip_tags(body)}\n\n--\n{unsubscribe_label}: {unsubscribe_url}"
     html_body = (
-        f"{broadcast.body}"
-        f'<hr><p style="font-size:12px;color:#888">'
-        f'<a href="{unsubscribe_url}">{unsubscribe_label}</a></p>'
+        f'{body}<hr><p style="font-size:12px;color:#888"><a href="{unsubscribe_url}">{unsubscribe_label}</a></p>'
     )
 
     # from_email=None -> settings.DEFAULT_FROM_EMAIL
     message = EmailMultiAlternatives(
-        subject=broadcast.subject,
+        subject=subject,
         body=text_body,
         from_email=None,
         to=[customer.email],

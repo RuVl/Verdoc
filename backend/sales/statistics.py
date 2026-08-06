@@ -1,0 +1,349 @@
+"""
+Every number the statistics page shows, and nothing else.
+
+Plain functions over a half-open period `[start, end)`, returning data ready to render. No HTTP,
+no templates: this is the layer the tests hold, so a change in the page cannot quietly change what
+a figure means.
+
+Two conventions run through all of it:
+
+- **Money is the price snapshot.** `OrderItem.unit_price_usd` is what the customer was actually
+  charged, so a later edit of the catalogue price cannot rewrite last month's revenue.
+- **A sale is `Order.paid_at`.** The same stamp `CustomerQuerySet.buyers()` keys off, written
+  exactly once by `Order.mark_paid()`. PAID and OVERPAID are one thing here.
+
+Days are UTC days - the project runs on `TIME_ZONE = "UTC"` and the page says so out loud.
+"""
+
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+
+from django.db.models import Aggregate, Avg, Count, DecimalField, DurationField, F, Q, Sum
+from django.db.models.functions import Coalesce, TruncDay
+
+from catalog.models import Product, StockItem
+from customer.models import Customer
+from sales.models import Allocation, Order, OrderItem, Transaction
+
+# How long an order may take to pay before its reservation is gone and the stock had to be
+# handed out again. Mirrors Order.is_expired().
+RESERVATION_WINDOW = timedelta(hours=1)
+
+# The window the stock forecast measures the sales rate over, regardless of the page's period:
+# "will it last" is a question about now, not about the range being browsed.
+SALES_RATE_DAYS = 30
+
+MONEY = DecimalField(max_digits=20, decimal_places=2)
+
+
+class Median(Aggregate):
+    """PERCENTILE_CONT(0.5) - PostgreSQL's ordered-set aggregate, which the ORM has no shortcut for."""
+
+    function = "PERCENTILE_CONT"
+    name = "median"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+
+
+@dataclass
+class Period:
+    """The half-open range the page is looking at, plus how it was asked for."""
+
+    start: datetime
+    end: datetime
+    preset: str = "30"
+
+    @property
+    def days(self) -> int:
+        return max((self.end - self.start).days, 1)
+
+    @property
+    def last_day(self) -> date:
+        """The last day inside the range - `end` is exclusive and would read as one day too far."""
+
+        return (self.end - timedelta(days=1)).date()
+
+
+@dataclass
+class MoneyTotals:
+    gross: Decimal = Decimal("0")
+    commission: Decimal = Decimal("0")
+    orders: int = 0
+
+    @property
+    def net(self) -> Decimal:
+        return self.gross - self.commission
+
+    @property
+    def average_order(self) -> Decimal:
+        return self.gross / self.orders if self.orders else Decimal("0")
+
+    @property
+    def commission_share(self) -> Decimal:
+        return self.commission / self.gross * 100 if self.gross else Decimal("0")
+
+
+@dataclass
+class Funnel:
+    created: int = 0
+    paid: int = 0
+    by_status: list[dict] = field(default_factory=list)
+    leads: int = 0
+
+    @property
+    def conversion(self) -> Decimal:
+        return Decimal(self.paid) / Decimal(self.created) * 100 if self.created else Decimal("0")
+
+
+def paid_orders(period: Period):
+    """Orders that became paid inside the period - the base of every money figure."""
+
+    return Order.objects.filter(paid_at__gte=period.start, paid_at__lt=period.end)
+
+
+def sold_items(period: Period):
+    return OrderItem.objects.filter(order__paid_at__gte=period.start, order__paid_at__lt=period.end)
+
+
+def _line_total():
+    return Sum(F("unit_price_usd") * F("quantity"), output_field=MONEY)
+
+
+def revenue_by_day(period: Period) -> list[dict]:
+    """
+    Gross revenue per day, with the empty days filled in.
+
+    A day with no sales has no rows to group, and leaving it out would let the chart draw a
+    straight line across a dead week as if it had been trading.
+    """
+
+    rows = (
+        sold_items(period)
+        .annotate(day=TruncDay("order__paid_at"))
+        .values("day")
+        .annotate(revenue=_line_total())
+        .order_by("day")
+    )
+    revenue: dict[date, Decimal] = {row["day"].date(): row["revenue"] for row in rows}
+
+    days = []
+    cursor = period.start.date()
+    while cursor < period.end.date():
+        days.append({"day": cursor, "revenue": revenue.get(cursor, Decimal("0"))})
+        cursor += timedelta(days=1)
+
+    return days
+
+
+def money_totals(period: Period) -> MoneyTotals:
+    """Gross from the snapshots, what Plisio kept, and how many orders it took."""
+
+    gross = sold_items(period).aggregate(total=Coalesce(_line_total(), Decimal("0"), output_field=MONEY))["total"]
+
+    # commission arrives in the invoice's cryptocurrency and source_rate converts it to USD; both
+    # are optional in the callback, so an invoice missing either is left out rather than counted
+    # as free. Only completed invoices - switching currency mints a second one for the same order.
+    commission = Transaction.objects.filter(
+        order__paid_at__gte=period.start,
+        order__paid_at__lt=period.end,
+        status=Transaction.TransactionStatus.COMPLETED,
+        commission__isnull=False,
+        source_rate__isnull=False,
+    ).aggregate(total=Coalesce(Sum(F("commission") * F("source_rate"), output_field=MONEY), Decimal("0")))["total"]
+
+    return MoneyTotals(gross=gross, commission=commission, orders=paid_orders(period).count())
+
+
+def top_products(period: Period, limit: int = 10) -> list[dict]:
+    """
+    Best sellers by revenue.
+
+    Grouped by the snapshot `product_name`, not by the live product: renaming a product in the
+    catalogue must not silently merge or split what was sold under the old name.
+    """
+
+    return list(
+        sold_items(period)
+        .values("product_name")
+        .annotate(revenue=_line_total(), units=Sum("quantity"))
+        .order_by("-revenue")[:limit]
+    )
+
+
+def top_countries(period: Period, limit: int = 10) -> list[dict]:
+    """Same cut by country. Items whose product was deleted have no country and are dropped."""
+
+    return list(
+        sold_items(period)
+        .filter(product__country__isnull=False)
+        .values("product__country__name")
+        .annotate(revenue=_line_total(), units=Sum("quantity"))
+        .order_by("-revenue")[:limit]
+    )
+
+
+def stock_forecast(now: datetime) -> list[dict]:
+    """
+    What is left of each product and how long it lasts at the recent rate.
+
+    The only block on the page that is about right now rather than about the period: the answer to
+    "what do I buy next" cannot depend on which range somebody happens to be browsing.
+    """
+
+    since = now - timedelta(days=SALES_RATE_DAYS)
+    sold = (
+        OrderItem.objects.filter(order__paid_at__gte=since)
+        .values("product_id")
+        .annotate(units=Sum("quantity"))
+        .order_by()
+    )
+    sold_by_product = {row["product_id"]: row["units"] for row in sold}
+
+    rows = []
+    for product in Product.objects.with_available().select_related("country"):
+        units = sold_by_product.get(product.pk, 0)
+        rate = Decimal(units) / Decimal(SALES_RATE_DAYS)
+        rows.append(
+            {
+                "product": product.name,
+                "country": product.country.name if product.country_id else "-",
+                "available": product.available,
+                "sold": units,
+                "rate": rate,
+                # Nothing selling means nothing running out - an infinite runway, not a crash.
+                "days_left": (Decimal(product.available) / rate) if rate else None,
+            }
+        )
+
+    # Whatever is closest to running out goes first; the never-selling tail sinks to the bottom.
+    return sorted(rows, key=lambda row: (row["days_left"] is None, row["days_left"] or 0, row["available"]))
+
+
+def stock_age(now: datetime) -> dict:
+    """
+    How long the units currently in stock have been sitting there.
+
+    Rows from before `StockItem.created_at` existed carry NULL and are counted separately instead
+    of being folded in as brand new.
+    """
+
+    units = StockItem.objects.available()
+    dated = units.filter(created_at__isnull=False)
+    oldest = dated.order_by("created_at").values_list("created_at", flat=True).first()
+
+    return {
+        "available": units.count(),
+        "undated": units.filter(created_at__isnull=True).count(),
+        "oldest_days": (now - oldest).days if oldest else None,
+    }
+
+
+def funnel(period: Period) -> Funnel:
+    """Orders opened in the period, and how many of them ended up paid."""
+
+    orders = Order.objects.filter(created_at__gte=period.start, created_at__lt=period.end)
+    counts = orders.aggregate(created=Count("pk"), paid=Count("pk", filter=Q(paid_at__isnull=False)))
+
+    by_status = list(orders.values("status").annotate(count=Count("pk")).order_by("-count"))
+
+    return Funnel(
+        created=counts["created"],
+        paid=counts["paid"],
+        by_status=by_status,
+        # Customers who have never paid for anything - the same definition the admin list uses.
+        leads=Customer.objects.leads().filter(created_at__gte=period.start, created_at__lt=period.end).count(),
+    )
+
+
+def time_to_pay(period: Period) -> dict:
+    """
+    How long customers take to pay, and how many took longer than the reservation lasts.
+
+    A late payment is not a lost sale - `Order.deliver()` re-allocates from stock - but every one
+    of them is a unit that sat locked and then had to be found again.
+    """
+
+    orders = paid_orders(period).annotate(took=F("paid_at") - F("created_at"))
+    stats = orders.aggregate(
+        median=Median("took", output_field=DurationField()),
+        average=Avg("took"),
+        late=Count("pk", filter=Q(took__gt=RESERVATION_WINDOW)),
+        total=Count("pk"),
+    )
+
+    return {
+        "median": stats["median"],
+        "average": stats["average"],
+        "late": stats["late"],
+        "late_share": Decimal(stats["late"]) / Decimal(stats["total"]) * 100 if stats["total"] else Decimal("0"),
+    }
+
+
+def repeat_customers(period: Period, limit: int = 10) -> dict:
+    """
+    Who comes back, and what a customer is worth.
+
+    Counted over everyone who has ever paid, not over the period: a second purchase in March by
+    somebody who first bought in January is exactly the fact worth having, and clipping the
+    history would hide it.
+    """
+
+    buyers = Customer.objects.buyers().annotate(
+        paid_orders=Count("orders", filter=Q(orders__paid_at__isnull=False), distinct=True),
+        spent=Coalesce(
+            Sum(
+                F("orders__items__unit_price_usd") * F("orders__items__quantity"),
+                filter=Q(orders__paid_at__isnull=False),
+                output_field=MONEY,
+            ),
+            Decimal("0"),
+            output_field=MONEY,
+        ),
+    )
+
+    totals = buyers.aggregate(
+        total=Count("pk", distinct=True),
+        returning=Count("pk", filter=Q(paid_orders__gt=1), distinct=True),
+        average_ltv=Avg("spent"),
+    )
+
+    new_buyers = (
+        Customer.objects.buyers()
+        .filter(orders__paid_at__gte=period.start, orders__paid_at__lt=period.end)
+        .distinct()
+        .count()
+    )
+
+    return {
+        "total": totals["total"],
+        "returning": totals["returning"],
+        "returning_share": (
+            Decimal(totals["returning"]) / Decimal(totals["total"]) * 100 if totals["total"] else Decimal("0")
+        ),
+        "average_ltv": totals["average_ltv"] or Decimal("0"),
+        "active": new_buyers,
+        "top": list(buyers.order_by("-spent").values("email", "spent", "paid_orders")[:limit]),
+    }
+
+
+def download_rate(period: Period) -> dict:
+    """
+    How much of what was handed over was actually collected.
+
+    The counter only exists from the release that added it, so allocations delivered before then
+    read as never downloaded. The page says as much next to the figure.
+    """
+
+    delivered = Allocation.objects.filter(
+        state=Allocation.State.DELIVERED,
+        delivered_at__gte=period.start,
+        delivered_at__lt=period.end,
+    )
+    stats = delivered.aggregate(
+        total=Count("pk"),
+        taken=Count("pk", filter=Q(download_count__gt=0)),
+        downloads=Coalesce(Sum("download_count"), 0),
+    )
+    stats["share"] = Decimal(stats["taken"]) / Decimal(stats["total"]) * 100 if stats["total"] else Decimal("0")
+
+    return stats

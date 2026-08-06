@@ -1,0 +1,399 @@
+"""
+What the dashboard's numbers mean.
+
+Kept apart from `tests.py` because these hold the arithmetic, not the checkout invariants: the
+page may be rearranged freely, but a figure changing meaning has to break a test here.
+"""
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
+from django.contrib.auth.models import User
+from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
+
+from catalog.models import Country, Product, StockItem
+from customer.models import Customer
+from sales import statistics
+from sales.models import Allocation, Order, OrderItem, Transaction
+from sales.statistics import Period
+
+
+class StatisticsFactoryMixin:
+    def setUp(self):
+        self.country = Country.objects.create(name="Testland", code="tl")
+        self.product = Product.objects.create(name="Test passport", country=self.country, price=10)
+        self.customer = Customer.objects.create(email="buyer@example.com")
+
+        # A fixed window, so nothing here depends on when the suite runs.
+        self.start = datetime(2026, 3, 1, tzinfo=UTC)
+        self.end = datetime(2026, 3, 31, tzinfo=UTC)
+        self.period = Period(start=self.start, end=self.end)
+
+    def make_stock(self, count: int, product: Product | None = None):
+        product = product or self.product
+        for i in range(count):
+            StockItem.objects.create(file=f"products/{product.pk}-{i}-{StockItem.objects.count()}.pdf", product=product)
+
+    def make_sale(
+        self,
+        paid_at,
+        price="10",
+        quantity=1,
+        customer=None,
+        product=None,
+        created_at=None,
+    ) -> Order:
+        """A paid order with one item. auto_now_add ignores what we pass, so dates are set after."""
+
+        order = Order.objects.create(customer=customer or self.customer, total_price=Decimal(price) * quantity)
+        Order.objects.filter(pk=order.pk).update(
+            status=Order.OrderStatus.PAID,
+            created_at=created_at or paid_at,
+            paid_at=paid_at,
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=product or self.product,
+            product_name=(product or self.product).name,
+            unit_price=Decimal(price),
+            unit_price_usd=Decimal(price),
+            quantity=quantity,
+        )
+        return Order.objects.get(pk=order.pk)
+
+    def make_invoice(self, order, commission="0.001", rate="1000", status=Transaction.TransactionStatus.COMPLETED):
+        return Transaction.objects.create(
+            order=order,
+            txn_id=f"txn-{order.pk}-{Transaction.objects.count()}",
+            amount=Decimal("0.05"),
+            currency="BTC",
+            status=status,
+            commission=Decimal(commission) if commission is not None else None,
+            source_rate=Decimal(rate) if rate is not None else None,
+        )
+
+
+class PeriodBoundaryTests(StatisticsFactoryMixin, TestCase):
+    """The range is half-open: `start` is inside, `end` is not."""
+
+    def test_an_order_paid_exactly_at_the_start_counts(self):
+        self.make_sale(self.start)
+
+        self.assertEqual(statistics.money_totals(self.period).orders, 1)
+
+    def test_an_order_paid_exactly_at_the_end_does_not(self):
+        self.make_sale(self.end)
+
+        self.assertEqual(statistics.money_totals(self.period).orders, 0)
+
+    def test_an_unpaid_order_is_not_revenue(self):
+        order = Order.objects.create(customer=self.customer, total_price=10)
+        Order.objects.filter(pk=order.pk).update(created_at=self.start)
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            product_name=self.product.name,
+            unit_price=10,
+            unit_price_usd=10,
+            quantity=1,
+        )
+
+        totals = statistics.money_totals(self.period)
+
+        self.assertEqual(totals.gross, Decimal("0"))
+        self.assertEqual(totals.orders, 0)
+        # It is still a checkout, so the funnel sees it and the conversion drops.
+        self.assertEqual(statistics.funnel(self.period).created, 1)
+        self.assertEqual(statistics.funnel(self.period).conversion, Decimal("0"))
+
+
+class RevenueTests(StatisticsFactoryMixin, TestCase):
+    def test_gross_is_the_price_snapshot_times_quantity(self):
+        self.make_sale(self.start + timedelta(days=1), price="12.50", quantity=3)
+
+        self.assertEqual(statistics.money_totals(self.period).gross, Decimal("37.50"))
+
+    def test_a_catalogue_price_change_does_not_move_past_revenue(self):
+        self.make_sale(self.start + timedelta(days=1), price="10")
+
+        self.product.price = 999
+        self.product.save(update_fields=["price"])
+
+        self.assertEqual(statistics.money_totals(self.period).gross, Decimal("10"))
+
+    def test_days_without_sales_are_present_as_zero(self):
+        self.make_sale(self.start + timedelta(days=2))
+
+        days = statistics.revenue_by_day(self.period)
+
+        self.assertEqual(len(days), 30)
+        self.assertEqual(days[0]["revenue"], Decimal("0"))
+        self.assertEqual(days[2]["revenue"], Decimal("10"))
+
+    def test_an_empty_period_has_no_averages_to_divide(self):
+        totals = statistics.money_totals(self.period)
+
+        self.assertEqual(totals.gross, Decimal("0"))
+        self.assertEqual(totals.average_order, Decimal("0"))
+        self.assertEqual(totals.commission_share, Decimal("0"))
+        self.assertEqual(totals.net, Decimal("0"))
+
+
+class CommissionTests(StatisticsFactoryMixin, TestCase):
+    """Plisio reports the commission in the invoice's cryptocurrency; source_rate makes it USD."""
+
+    def test_commission_is_converted_through_the_source_rate(self):
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate="1500")
+
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("3.00"))
+
+    def test_a_currency_switch_is_charged_once(self):
+        """Switching coin mints a second invoice for the same order; only the completed one paid."""
+
+        order = self.make_sale(self.start + timedelta(days=1))
+        self.make_invoice(order, commission="0.002", rate="1500")
+        cancelled = Transaction.TransactionStatus.CANCELLED_DUPLICATE
+        self.make_invoice(order, commission="0.5", rate="4000", status=cancelled)
+
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("3.00"))
+
+    def test_an_invoice_without_a_commission_is_left_out_not_counted_as_free(self):
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission=None)
+        self.make_invoice(self.make_sale(self.start + timedelta(days=2)), commission="0.002", rate="1500")
+
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("3.00"))
+
+    def test_an_invoice_without_a_rate_is_left_out_too(self):
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate=None)
+
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("0"))
+
+    def test_net_is_gross_minus_commission(self):
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate="1500")
+
+        totals = statistics.money_totals(self.period)
+
+        self.assertEqual(totals.net, totals.gross - totals.commission)
+
+
+class TopListTests(StatisticsFactoryMixin, TestCase):
+    def test_products_are_grouped_by_the_name_they_were_sold_under(self):
+        self.make_sale(self.start + timedelta(days=1), quantity=2)
+        self.product.name = "Renamed afterwards"
+        self.product.save(update_fields=["name"])
+        self.make_sale(self.start + timedelta(days=2), quantity=1)
+
+        rows = statistics.top_products(self.period)
+
+        self.assertEqual(
+            {row["product_name"]: row["units"] for row in rows},
+            {"Test passport": 2, "Renamed afterwards": 1},
+        )
+
+    def test_countries_add_up_across_products(self):
+        other = Product.objects.create(name="Second", country=self.country, price=5)
+        self.make_sale(self.start + timedelta(days=1), price="10")
+        self.make_sale(self.start + timedelta(days=2), price="5", product=other)
+
+        rows = statistics.top_countries(self.period)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["revenue"], Decimal("15"))
+
+
+class StockForecastTests(StatisticsFactoryMixin, TestCase):
+    def test_days_left_follows_the_recent_sales_rate(self):
+        now = timezone.now()
+        self.make_stock(30)
+        # One sale a day over the 30-day window, so 30 units left is exactly 30 days of runway.
+        # The orders carry no allocations, so nothing is taken off the shelf here.
+        for day in range(30):
+            self.make_sale(now - timedelta(days=day, hours=1))
+
+        row = next(row for row in statistics.stock_forecast(now) if row["product"] == self.product.name)
+
+        self.assertEqual(row["available"], 30)
+        self.assertEqual(row["sold"], 30)
+        self.assertEqual(row["days_left"], Decimal(30))
+
+    def test_a_product_that_never_sells_has_no_runway_instead_of_a_division_by_zero(self):
+        self.make_stock(5)
+
+        row = statistics.stock_forecast(timezone.now())[0]
+
+        self.assertEqual(row["available"], 5)
+        self.assertIsNone(row["days_left"])
+
+    def test_sold_out_reads_as_zero_days_not_as_never(self):
+        now = timezone.now()
+        self.make_stock(1)
+        order = self.make_sale(now - timedelta(days=1))
+        item = order.items.first()
+        item.reserve()
+        item.deliver()
+
+        row = statistics.stock_forecast(now)[0]
+
+        self.assertEqual(row["available"], 0)
+        self.assertEqual(row["days_left"], Decimal(0))
+
+    def test_units_from_before_the_field_existed_are_counted_separately(self):
+        self.make_stock(3)
+        StockItem.objects.filter(pk__in=StockItem.objects.values_list("pk", flat=True)[:2]).update(created_at=None)
+
+        age = statistics.stock_age(timezone.now())
+
+        self.assertEqual(age["available"], 3)
+        self.assertEqual(age["undated"], 2)
+
+
+class TimeToPayTests(StatisticsFactoryMixin, TestCase):
+    def pay_after(self, minutes: int):
+        paid_at = self.start + timedelta(days=1)
+        self.make_sale(paid_at, created_at=paid_at - timedelta(minutes=minutes))
+
+    def test_the_median_of_an_odd_number_of_orders(self):
+        for minutes in (10, 20, 30):
+            self.pay_after(minutes)
+
+        self.assertEqual(statistics.time_to_pay(self.period)["median"], timedelta(minutes=20))
+
+    def test_the_median_of_an_even_number_of_orders_interpolates(self):
+        for minutes in (10, 20, 30, 40):
+            self.pay_after(minutes)
+
+        self.assertEqual(statistics.time_to_pay(self.period)["median"], timedelta(minutes=25))
+
+    def test_orders_paid_after_the_reservation_expired_are_flagged(self):
+        self.pay_after(10)
+        self.pay_after(120)
+
+        stats = statistics.time_to_pay(self.period)
+
+        self.assertEqual(stats["late"], 1)
+        self.assertEqual(stats["late_share"], Decimal(50))
+
+    def test_no_orders_means_no_median_and_no_division(self):
+        stats = statistics.time_to_pay(self.period)
+
+        self.assertIsNone(stats["median"])
+        self.assertEqual(stats["late_share"], Decimal("0"))
+
+
+class RepeatCustomerTests(StatisticsFactoryMixin, TestCase):
+    def test_a_second_order_makes_a_returning_buyer(self):
+        other = Customer.objects.create(email="second@example.com")
+        self.make_sale(self.start + timedelta(days=1), price="10")
+        self.make_sale(self.start + timedelta(days=2), price="30")
+        self.make_sale(self.start + timedelta(days=3), price="20", customer=other)
+
+        stats = statistics.repeat_customers(self.period)
+
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["returning"], 1)
+        self.assertEqual(stats["returning_share"], Decimal(50))
+        self.assertEqual(stats["average_ltv"], Decimal("30.00"))
+        self.assertEqual(stats["top"][0]["email"], self.customer.email)
+        self.assertEqual(stats["top"][0]["spent"], Decimal("40.00"))
+
+    def test_someone_who_never_paid_is_not_a_buyer(self):
+        Customer.objects.create(email="lead@example.com")
+
+        self.assertEqual(statistics.repeat_customers(self.period)["total"], 0)
+
+
+class DownloadRateTests(StatisticsFactoryMixin, TestCase):
+    def deliver(self, downloads: int):
+        self.make_stock(1)
+        order = self.make_sale(self.start + timedelta(days=1))
+        item = order.items.first()
+        item.reserve()
+        allocation = item.deliver()[0]
+        Allocation.objects.filter(pk=allocation.pk).update(
+            delivered_at=self.start + timedelta(days=1),
+            download_count=downloads,
+        )
+
+    def test_the_share_is_of_files_taken_not_of_downloads(self):
+        self.deliver(0)
+        self.deliver(3)
+
+        stats = statistics.download_rate(self.period)
+
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["taken"], 1)
+        self.assertEqual(stats["downloads"], 3)
+        self.assertEqual(stats["share"], Decimal(50))
+
+    def test_nothing_delivered_does_not_divide_by_zero(self):
+        self.assertEqual(statistics.download_rate(self.period)["share"], Decimal("0"))
+
+
+class StatisticsPageTests(TestCase):
+    """The page itself: who may open it, and that the period parser cannot be tripped up."""
+
+    def setUp(self):
+        self.url = reverse("admin:stats")
+        self.export_url = reverse("admin:stats-export")
+        self.staff = User.objects.create_user("staff", password="pw", is_staff=True, is_superuser=True)
+
+    def test_an_anonymous_visitor_is_sent_to_the_login(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response["Location"])
+
+    def test_staff_get_the_page(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/sales/statistics.html")
+
+    def test_the_dashboard_is_linked_from_the_admin_index(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("admin:index"))
+
+        self.assertContains(response, self.url)
+
+    def test_a_nonsense_preset_falls_back_to_the_default(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(self.url, {"preset": "'; DROP TABLE"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["period"].preset, "30")
+
+    def test_a_backwards_custom_range_falls_back_too(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(self.url, {"from": "2026-03-31", "to": "2026-03-01"})
+
+        self.assertEqual(response.context["period"].preset, "30")
+
+    def test_a_custom_range_includes_its_last_day(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(self.url, {"from": "2026-03-01", "to": "2026-03-31"})
+        period = response.context["period"]
+
+        self.assertEqual(period.preset, "custom")
+        self.assertEqual(period.last_day.isoformat(), "2026-03-31")
+        self.assertEqual(period.end, datetime(2026, 4, 1, tzinfo=UTC))
+
+    def test_the_csv_carries_a_bom_and_the_totals(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(self.export_url, {"preset": "7"})
+        body = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertTrue(body.startswith("﻿"), "Excel needs the BOM to read UTF-8")
+        self.assertIn("Revenue by day (UTC)", body)
+        self.assertIn("plisio_commission_usd", body)

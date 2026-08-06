@@ -15,8 +15,10 @@
     "request_new_link": "Request a new link",
     "retry": "Try again",
     "send_links": "Send links",
+    "stay_subscribed": "Keep my subscription",
     "support": "Store support",
-    "to_cart": "@:buttons.add2cart"
+    "to_cart": "@:buttons.add2cart",
+    "unsubscribe": "Unsubscribe"
   },
   "cart_view": {
     "cost": "Cost",
@@ -111,9 +113,13 @@
     }
   },
   "unsubscribe": {
+    "already": "{email} is already unsubscribed from the mailing list.",
+    "confirm": "Unsubscribe {email} from the mailing list? E-mails about your purchases will keep coming.",
     "done": "Done. {email} will no longer receive the mailing list.",
-    "error": "Could not unsubscribe. Try opening the link again in a moment.",
+    "error": "Could not unsubscribe. Please try again in a moment.",
     "invalid_link": "This unsubscribe link is broken or out of date. Write to support and we will do it by hand.",
-    "loading": "Unsubscribing you..."
+    "loading": "Checking the link...",
+    "submitting": "Unsubscribing...",
+    "unreachable": "Could not open the link - the server is not answering. Try again."
   }
 }

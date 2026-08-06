@@ -115,7 +115,7 @@ A `Broadcast` is written in the admin (TinyMCE, one editor per language), saved 
 
 - **The sender is resumable, not restartable.** `BroadcastDelivery` is one row per `(broadcast, customer)` with a `UniqueConstraint`. The command first writes `PENDING` rows for everyone (`bulk_create(ignore_conflicts=True)`), then walks `PENDING` + `FAILED`, closing each row as its message goes out. So a crash costs the one message in flight, a repeated run cannot mail anyone twice, and re-queueing retries only what failed. `Broadcast` has **no counters** - they are annotations over the deliveries in `BroadcastAdmin.get_queryset`.
 - **Bilingual from one row.** `mailing/translation.py` puts `subject` and `body` through modeltranslation, and `build_broadcast_email` reads them inside `translation.override(customer.language)`. A language left empty falls back to the site default. `BroadcastAdminForm.widgets` is keyed by the plain `body` - `TranslationAdmin` copies that widget onto `body_en` / `body_ru`, which is the only reason both get an editor.
-- **Opting out is `Customer.is_subscribed`**, not a suppression table. The link in the footer goes to the SPA route `/unsubscribe/:token` (signed with `django.core.signing`, salt `broadcast-unsubscribe`, language in `?lang=`), which calls `POST /api/unsubscribe/<token>/`. It must stay a **POST**: Gmail and Outlook pre-fetch every URL in a message, so opting out on GET would unsubscribe people who never clicked.
+- **Opting out is `Customer.is_subscribed`**, not a suppression table. The link in the footer goes to the SPA route `/unsubscribe/:token` (signed with `django.core.signing`, salt `broadcast-unsubscribe`, language in `?lang=`). The page **asks first**: `GET /api/unsubscribe/<token>/` only reads the token and answers `{email, is_subscribed}`, and `POST` on the same URL is the only thing that opts out. Keep that split - Gmail and Outlook pre-fetch every URL in a message, and a customer who opens the link out of curiosity should not lose the list either.
 
 ### Email delivery
 
@@ -136,7 +136,7 @@ Vue 3 + Pinia (with `pinia-plugin-persistedstate` for the cart), Vue Router, axi
 
 Two routes share the "my purchases" name and they are not the same page: `/purchases` (`views/MyPurchases.vue`) is the e-mail form you land on when the link is lost, `/purchases/:token` (`views/Purchases.vue`) is the page the e-mail links to. The token in the URL is the whole authentication, so a 404 from any of its calls means "the link is spent" and the page says so instead of retrying. Prices there come from the order's snapshot and are **not** run through the currency switcher - they are what was actually charged.
 
-`/unsubscribe/:token` (`views/Unsubscribe.vue`) is the third token page; it POSTs on mount (see Broadcasts above for why it is not a GET).
+`/unsubscribe/:token` (`views/Unsubscribe.vue`) is the third token page; it reads the token on mount and waits for a click before opting anyone out (see Broadcasts above).
 
 Anything that fetches shows which of "loading", "failed" and "empty" it is in - `Home.vue`, `Purchases.vue` and `Unsubscribe.vue` all follow the same shape. An empty result and a dead backend must never look alike.
 

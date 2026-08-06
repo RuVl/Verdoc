@@ -295,13 +295,34 @@ class UnsubscribeViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-    def test_get_does_not_unsubscribe(self):
-        """Link scanners pre-fetch every URL in a message; only the page in a browser may opt out."""
+    def test_get_only_reads_the_token(self):
+        """Opening the link - by hand or by a mail scanner pre-fetching it - must change nothing."""
         response = self.client.get(self.url(make_unsubscribe_token(self.customer.email)))
 
-        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"email": "buyer@example.com", "is_subscribed": True})
         self.customer.refresh_from_db()
         self.assertTrue(self.customer.is_subscribed)
+
+    def test_get_reports_someone_already_opted_out(self):
+        self.customer.unsubscribe()
+
+        response = self.client.get(self.url(make_unsubscribe_token(self.customer.email)))
+
+        self.assertFalse(response.data["is_subscribed"])
+
+    def test_get_refuses_a_tampered_token(self):
+        response = self.client.get(self.url("not-a-real-token"))
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_get_for_a_deleted_customer_reads_as_already_done(self):
+        token = signing.dumps("gone@example.com", salt=UNSUBSCRIBE_SALT)
+
+        response = self.client.get(self.url(token))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"email": "gone@example.com", "is_subscribed": False})
 
     def test_an_unsubscribed_buyer_is_dropped_from_the_next_run(self):
         self.client.post(self.url(make_unsubscribe_token(self.customer.email)))

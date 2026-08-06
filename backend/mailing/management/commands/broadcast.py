@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # SMTP rate-limit: send in batches with a pause in between.
 BATCH_SIZE = 20
-BATCH_PAUSE_SECONDS = 1.0
+BATCH_PAUSE_SECONDS = 5.0
 
 
 class Command(BaseCommand):

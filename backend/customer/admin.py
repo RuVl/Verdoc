@@ -40,16 +40,16 @@ class HasPurchasesFilter(admin.SimpleListFilter):
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ["email", "orders_count", "language", "has_access", "is_subscribed", "created_at"]
+    list_display = ["email", "orders_count", "has_access", "is_subscribed", "created_at"]
     list_filter = [HasPurchasesFilter, "language", "is_subscribed", "created_at"]
     search_fields = ["email"]
     fields = [
         "email",
-        "language",
         "access_token_url",
         "access_token_expires_at",
         "is_subscribed",
         "unsubscribed_at",
+        "language",
         "created_at",
     ]
     readonly_fields = fields

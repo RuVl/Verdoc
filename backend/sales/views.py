@@ -318,6 +318,9 @@ class SendDownloadLinksView(APIView):
         if not orders:
             return HttpResponseNotFound()
 
+        # They are asking from the site right now, so this is the language to answer in.
+        customer.set_language(serializer.validated_data.get("language"))
+
         try:
             with transaction.atomic():
                 for order in orders:

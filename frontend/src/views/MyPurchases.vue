@@ -1,6 +1,7 @@
 <script setup>
 import {reactive} from "vue";
 import apiClient from "@/api/index.js";
+import {useSettingsStore} from "@/stores/settings";
 import ViewBlock from "@/components/ViewBlock.vue";
 import CommonButton from "@/components/CommonButton.vue";
 import PrettyInput from "@/components/PrettyInput.vue";
@@ -13,7 +14,7 @@ async function sendLinks() {
   try {
     const response = await apiClient.post('/send-links/', {
       email: purchases_form.email,
-      captcha: purchases_form.captcha
+      language: useSettingsStore().currentLanguage,
     });
 
     if (response.status === 200)

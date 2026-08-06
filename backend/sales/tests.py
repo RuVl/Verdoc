@@ -515,6 +515,26 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(response.data["code"], "invoice_failed")
         self.assertEqual(response.data["provider_code"], 401)
 
+    def test_checkout_remembers_the_site_language(self):
+        payload = self.payload() | {"language": "ru"}
+
+        with patch("sales.views.requests.get") as plisio:
+            plisio.return_value.status_code = 200
+            plisio.return_value.json.return_value = {
+                "status": "success",
+                "data": {"invoice_url": "https://plisio.net/invoice/1"},
+            }
+
+            self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(Customer.objects.get(email="new@example.com").language, "ru")
+
+    def test_checkout_rejects_a_language_the_site_does_not_speak(self):
+        response = self.client.post(self.url, self.payload() | {"language": "de"}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Allocation.objects.count(), 0)
+
     def test_unreachable_plisio_does_not_leave_a_reservation(self):
         with (
             patch("sales.views.requests.get", side_effect=requests.ConnectionError("no route")),

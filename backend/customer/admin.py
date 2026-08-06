@@ -1,9 +1,8 @@
 from django.contrib import admin
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Q
 from django.utils.html import format_html
 
 from customer.models import Customer
-from sales.models import Order
 
 
 class HasPurchasesFilter(admin.SimpleListFilter):
@@ -36,18 +35,23 @@ class HasPurchasesFilter(admin.SimpleListFilter):
         if value == "all":
             return queryset
 
-        # Exists() instead of a join, so it cannot interfere with the counts annotated below.
-        paid = Order.objects.filter(customer=OuterRef("pk"), paid_at__isnull=False)
-
-        return queryset.filter(Exists(paid)) if value == "yes" else queryset.filter(~Exists(paid))
+        return queryset.buyers() if value == "yes" else queryset.leads()
 
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ["email", "orders_count", "has_access", "is_subscribed", "created_at"]
-    list_filter = [HasPurchasesFilter, "is_subscribed", "created_at"]
+    list_display = ["email", "orders_count", "language", "has_access", "is_subscribed", "created_at"]
+    list_filter = [HasPurchasesFilter, "language", "is_subscribed", "created_at"]
     search_fields = ["email"]
-    fields = ["email", "access_token_url", "access_token_expires_at", "is_subscribed", "unsubscribed_at", "created_at"]
+    fields = [
+        "email",
+        "language",
+        "access_token_url",
+        "access_token_expires_at",
+        "is_subscribed",
+        "unsubscribed_at",
+        "created_at",
+    ]
     readonly_fields = fields
 
     def __init__(self, model, admin_site):

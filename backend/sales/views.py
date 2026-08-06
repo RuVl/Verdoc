@@ -259,7 +259,12 @@ def serve_allocation(allocation: Allocation):
         logger.error(f"Allocation {allocation.id} has no file to serve")
         return HttpResponseNotFound()
 
-    return FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)
+    # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with` here
+    # would close the file before a single byte went out.
+    response = FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)  # noqa: SIM115
+    # Counted only once the file is actually open, so a 404 above never looks like a download.
+    allocation.record_download()
+    return response
 
 
 class DownloadFileView(views.View):

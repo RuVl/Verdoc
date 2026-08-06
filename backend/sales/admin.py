@@ -111,7 +111,7 @@ class OrderItemAdmin(ReadOnlyAdmin):
 
 @admin.register(Allocation)
 class AllocationAdmin(ReadOnlyAdmin):
-    list_display = ("id", "order_item", "stock_item", "state", "is_downloadable", "download_link")
+    list_display = ("id", "order_item", "stock_item", "state", "is_downloadable", "download_count", "download_link")
     list_filter = ("state", "reserved_at", "order_item__order__status")
     search_fields = ("order_item__order__customer__email", "order_item__product_name", "token")
     list_select_related = ("order_item", "order_item__order", "order_item__order__customer", "stock_item")
@@ -124,6 +124,9 @@ class AllocationAdmin(ReadOnlyAdmin):
         "released_at",
         "token_expires_at",
         "download_link",
+        "download_count",
+        "first_downloaded_at",
+        "last_downloaded_at",
     )
     exclude = ("token",)
 

@@ -379,6 +379,53 @@ class DownloadTests(ServedFilesMixin, TestCase):
         self.assertEqual(self.download(self.allocation.token), 404)
 
 
+class DownloadCounterTests(ServedFilesMixin, TestCase):
+    """The only place a download writes to the database."""
+
+    def download(self, token=None):
+        response = self.client.get(reverse("download-file", args=[token or self.allocation.token]))
+        # FileResponse is lazy: the counter is only written once the body has been consumed.
+        if response.status_code == 200:
+            b"".join(response.streaming_content)
+        self.allocation.refresh_from_db()
+        return response
+
+    def test_serving_the_file_counts_one_download(self):
+        self.download()
+
+        self.assertEqual(self.allocation.download_count, 1)
+        self.assertIsNotNone(self.allocation.first_downloaded_at)
+        self.assertEqual(self.allocation.first_downloaded_at, self.allocation.last_downloaded_at)
+
+    def test_a_second_download_moves_only_the_last_stamp(self):
+        self.download()
+        first = self.allocation.first_downloaded_at
+
+        self.download()
+
+        self.assertEqual(self.allocation.download_count, 2)
+        self.assertEqual(self.allocation.first_downloaded_at, first)
+        self.assertGreater(self.allocation.last_downloaded_at, first)
+
+    def test_a_refused_download_counts_nothing(self):
+        self.allocation.token_expires_at = timezone.now() - timedelta(seconds=1)
+        self.allocation.save(update_fields=["token_expires_at"])
+
+        self.assertEqual(self.download().status_code, 404)
+        self.assertEqual(self.allocation.download_count, 0)
+        self.assertIsNone(self.allocation.first_downloaded_at)
+
+    def test_the_counter_survives_a_token_rotation(self):
+        """Re-issuing the link does not reset how many times the file was taken."""
+
+        self.download()
+        self.allocation.issue_token()
+
+        self.download()
+
+        self.assertEqual(self.allocation.download_count, 2)
+
+
 class LegacyDownloadTests(ServedFilesMixin, TestCase):
     """Links from e-mails sent before R2 keep working until their tokens expire."""
 

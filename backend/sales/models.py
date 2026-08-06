@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.db import models
-from django.db.models import Count, ProtectedError, Q, UniqueConstraint
+from django.db.models import Count, F, ProtectedError, Q, UniqueConstraint, Value
+from django.db.models.functions import Coalesce
 from django.db.transaction import atomic
 from django.http import HttpRequest
 from django.urls import reverse
@@ -331,6 +332,9 @@ class Allocation(models.Model):
     :param released_at: When the unit was given back.
     :param token: Opens this single file; rotated on request, see DOWNLOAD_TTL.
     :param token_expires_at: When the token stops working.
+    :param download_count: How many times the file behind this allocation was served.
+    :param first_downloaded_at: When the customer first took the file.
+    :param last_downloaded_at: When the customer last took the file.
     """
 
     class State(models.TextChoices):
@@ -349,6 +353,11 @@ class Allocation(models.Model):
 
     token = models.UUIDField(null=True, blank=True, unique=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
+
+    # Written only by `record_download`, which is the one place a download touches the database.
+    download_count = models.PositiveIntegerField(default=0)
+    first_downloaded_at = models.DateTimeField(null=True, blank=True)
+    last_downloaded_at = models.DateTimeField(null=True, blank=True)
 
     objects = AllocationQuerySet.as_manager()
 
@@ -378,6 +387,21 @@ class Allocation(models.Model):
         self.token_expires_at = timezone.now() + settings.DOWNLOAD_TTL
         if commit:
             self.save(update_fields=["token", "token_expires_at"])
+
+    def record_download(self):
+        """
+        Count one served download.
+
+        An UPDATE with F() rather than a save(): two browsers pulling the same link at once must
+        add up to two, and nothing else on the row may be written back from a stale instance.
+        """
+
+        now = timezone.now()
+        Allocation.objects.filter(pk=self.pk).update(
+            download_count=F("download_count") + 1,
+            first_downloaded_at=Coalesce("first_downloaded_at", Value(now)),
+            last_downloaded_at=now,
+        )
 
     def get_download_url(self, request: HttpRequest | None) -> str:
         """

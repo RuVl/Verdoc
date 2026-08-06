@@ -10,7 +10,7 @@
 | `catalog` | `Country`, `Product`, `StockItem` | `passport` |
 | `customer` | `Customer` | — |
 | `sales` | `Order`, `OrderItem`, `Allocation`, `Transaction`, `PaymentCallbackLog` | `order` |
-| `mailing` | `Broadcast`, `BroadcastDelivery` | ветка `feature/add-broadcasting` |
+| `mailing` | `Broadcast`, `BroadcastDelivery` | коммит `883990c` удалённой ветки `feature/add-broadcasting` |
 
 Исчезают: `DownloadLink`, `Unsubscribe`, `Passport.quantity`, `OrderItem.is_reserved`,
 `passport/signals.py`, команда `resync_quantity`.
@@ -49,6 +49,7 @@ Table customer_customer {
   email varchar [unique]
   access_token uuid [unique, note: "открывает страницу покупок"]
   access_token_expires_at datetime
+  language varchar [note: "en/ru, на этом языке уходят все письма, см. ADR-0009"]
   is_subscribed boolean [note: "заменил таблицу Unsubscribe"]
   unsubscribed_at datetime [null]
   created_at datetime
@@ -128,20 +129,25 @@ Table sales_paymentcallbacklog {
 
 Table mailing_broadcast {
   id integer [primary key]
-  subject varchar
-  body text
+  subject_en varchar
+  subject_ru varchar
+  body_en text
+  body_ru text
   test_email varchar [null]
   status varchar [note: "DRAFT, QUEUED, SENDING, SENT, FAILED"]
   created_at datetime
   sent_at datetime [null]
+  // счётчиков нет: они считаются по mailing_broadcastdelivery
+  // subject/body ведёт modeltranslation, как Country.name и Product.name
 }
 
 Table mailing_broadcastdelivery {
   id integer [primary key]
   broadcast_id integer [ref: > mailing_broadcast.id]
   customer_id integer [ref: > customer_customer.id]
-  status varchar [note: "PENDING, SENT, FAILED"]
+  state varchar [note: "PENDING, SENT, FAILED"]
   error text [null]
+  created_at datetime
   sent_at datetime [null]
 
   indexes {

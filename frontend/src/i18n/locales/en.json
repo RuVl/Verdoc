@@ -13,9 +13,12 @@
     "refresh_all_links": "Refresh all links",
     "refresh_link": "Refresh link",
     "request_new_link": "Request a new link",
+    "retry": "Try again",
     "send_links": "Send links",
+    "stay_subscribed": "Keep my subscription",
     "support": "Store support",
-    "to_cart": "@:buttons.add2cart"
+    "to_cart": "@:buttons.add2cart",
+    "unsubscribe": "Unsubscribe"
   },
   "cart_view": {
     "cost": "Cost",
@@ -42,7 +45,10 @@
   "products": {
     "count": "pc.",
     "currency": "Currency",
+    "empty": "There are no products yet. Come back later.",
+    "error": "Could not load the product list. Check your connection and try again.",
     "list": "List of products",
+    "loading": "Loading the product list...",
     "modal_window": {
       "title": "Buying goods",
       "total_amount": "for the total amount"
@@ -69,7 +75,8 @@
     "info": "Rules of the store",
     "main": "Main",
     "my_purchases": "My purchases",
-    "support": "Support"
+    "support": "Support",
+    "unsubscribe": "Unsubscribe"
   },
   "site_info": {
     "description": "Clean documents, we sell in one hand. Write to customer service if you need wholesale or if the document you need is not on the website.",
@@ -104,5 +111,15 @@
       "first": "Documents from various countries for",
       "second": "passing verification"
     }
+  },
+  "unsubscribe": {
+    "already": "{email} is already unsubscribed from the mailing list.",
+    "confirm": "Unsubscribe {email} from the mailing list? E-mails about your purchases will keep coming.",
+    "done": "Done. {email} will no longer receive the mailing list.",
+    "error": "Could not unsubscribe. Please try again in a moment.",
+    "invalid_link": "This unsubscribe link is broken or out of date. Write to support and we will do it by hand.",
+    "loading": "Checking the link...",
+    "submitting": "Unsubscribing...",
+    "unreachable": "Could not open the link - the server is not answering. Try again."
   }
 }

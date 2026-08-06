@@ -1,0 +1,26 @@
+{% load i18n admin_urls %}
+{% comment %}
+Scoped submit row for Broadcast. Save = draft. Two extra submit buttons post the same form
+(so current edits are saved first) and are handled in BroadcastAdmin.response_add/response_change:
+_send_test -> send a preview to test_email
+_queue     -> queue for the cron sender (with a JS confirm, since this reaches real buyers)
+The confusing "add another" / "continue editing" buttons are dropped
+(also disabled via changeform_view extra_context).
+{% endcomment %}
+<div class="submit-row">
+    {% block submit-row %}
+    {% if show_save %}<input type="submit" value="Save draft" class="default" name="_save">{% endif %}
+    <input type="submit" value="Send test email" name="_send_test">
+    <input type="submit" value="Queue for sending"
+           name="_queue"
+           onclick="return confirm('Queue this broadcast for sending? It will be emailed to every paid buyer (minus unsubscribes) by the cron sender within ~15 minutes. Send a test email first if you have not.');">
+    {% if show_close %}
+    {% url opts|admin_urlname:'changelist' as changelist_url %}
+    <a href="{% add_preserved_filters changelist_url %}" class="closelink">{% translate 'Close' %}</a>
+    {% endif %}
+    {% if show_delete_link and original %}
+    {% url opts|admin_urlname:'delete' original.pk|admin_urlquote as delete_url %}
+    <a href="{% add_preserved_filters delete_url %}" class="deletelink">{% translate "Delete" %}</a>
+    {% endif %}
+    {% endblock %}
+</div>

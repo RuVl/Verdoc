@@ -15,15 +15,23 @@ import CounterChanger from "@/components/CounterChanger.vue";
 import SelectPayment from "@/components/SelectPayment.vue";
 
 const countries = ref([]);
+const loading = ref(true);
+const failed = ref(false);
 
 async function fetchCountries() {
+  loading.value = true;
+  failed.value = false;
   try {
     const response = await apiClient.get('/countries/');
     countries.value = response.data
         .map(countryData => Country.fromApi(countryData))
         .sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
+    // An empty table looks the same as a sold-out catalogue, so say which one it is.
+    failed.value = true;
     console.error('Error fetching countries:', error);
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -63,6 +71,16 @@ function add2cart(product) {
       </span>
     </div>
     <hr>
+
+    <p v-if="loading" class="notice">{{ $t('products.loading') }}</p>
+
+    <div v-else-if="failed" class="notice failed">
+      <p>{{ $t('products.error') }}</p>
+      <CommonButton type="button" @click="fetchCountries">{{ $t('buttons.retry') }}</CommonButton>
+    </div>
+
+    <p v-else-if="!countries.length" class="notice">{{ $t('products.empty') }}</p>
+
     <ProductsList v-for="country in countries" :key="country.id" :elements="country.products">
       <template #title>
         <CountryFlag :country="country.code" class="flag-icon" size="big"/>
@@ -181,6 +199,18 @@ function add2cart(product) {
     margin: 25px 0;
     border: 0;
     border-top: 1px solid var(--second-color);
+  }
+
+  .notice {
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  .notice.failed {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
   }
 
   .flag-icon {
@@ -369,6 +399,15 @@ function add2cart(product) {
   .product-table {
     :deep(.products-list > ul > li) {
       gap: 10px 15px;
+    }
+
+    .notice {
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .notice.failed {
+      align-items: center;
     }
 
     .controls .currency-switch-wrapper {

@@ -1,6 +1,7 @@
 import {defineStore} from 'pinia';
 import plisio_icon from "@/assets/plisio.png";
 import {useCartStore} from "@/stores/cart";
+import {useSettingsStore} from "@/stores/settings";
 import apiClient from "@/api/index.js";
 
 export const useOrderStore = defineStore('order', {
@@ -22,6 +23,9 @@ export const useOrderStore = defineStore('order', {
             try {
                 const response = await apiClient.post('/order/', {
                     email: email,
+                    // Remembered on the Customer: the delivery e-mail is sent from the payment
+                    // webhook, long after this browser is gone.
+                    language: useSettingsStore().currentLanguage,
                     items: items,
                 });
                 cartStore.clearCart();
@@ -36,6 +40,7 @@ export const useOrderStore = defineStore('order', {
             try {
                 const response = await apiClient.post('/order/', {
                     email: email,
+                    language: useSettingsStore().currentLanguage,
                     items: [{
                         product_id: product.id,
                         quantity: product.quantity,

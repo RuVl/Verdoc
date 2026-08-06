@@ -206,6 +206,18 @@ wheels = [
 ]
 
 [[package]]
+name = "django-tinymce"
+version = "5.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0a/71/e9556c8bc1d99c0cb4081af0abc6440d7cf53c87b6c7da7b117f2de24881/django_tinymce-5.0.0.tar.gz", hash = "sha256:6257669ed596accf5fa967ff3061276b2c5352baac1bbc658fcd8252b12ca38a", size = 1161002, upload-time = "2025-10-21T19:25:25.831Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/22/b7b9299b40995b524bb2f6d61ae55bd690858630ff5e0ba9a06210313195/django_tinymce-5.0.0-py3-none-any.whl", hash = "sha256:c2e9c5efd2cc6c036f4c57e602b133180433e2bd1513b897089d3c4fb4e20579", size = 1400312, upload-time = "2025-10-21T19:25:24.113Z" },
+]
+
+[[package]]
 name = "djangorestframework"
 version = "3.17.1"
 source = { registry = "https://pypi.org/simple" }
@@ -495,6 +507,7 @@ dependencies = [
     { name = "django-environ" },
     { name = "django-modeltranslation" },
     { name = "django-money", extra = ["exchange"] },
+    { name = "django-tinymce" },
     { name = "djangorestframework" },
     { name = "dnspython" },
     { name = "gevent" },
@@ -516,6 +529,7 @@ requires-dist = [
     { name = "django-environ", specifier = "==0.14.0" },
     { name = "django-modeltranslation", specifier = "==0.20.3" },
     { name = "django-money", extras = ["exchange"], specifier = "==3.5.4" },
+    { name = "django-tinymce", specifier = "==5.0.0" },
     { name = "djangorestframework", specifier = "==3.17.1" },
     { name = "dnspython", specifier = ">=2.8.0" },
     { name = "gevent", specifier = "==25.5.1" },

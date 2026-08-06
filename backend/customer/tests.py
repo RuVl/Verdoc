@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import dns.exception
 import dns.resolver
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -49,6 +50,61 @@ class CustomerSubscriptionTests(TestCase):
 
         self.assertFalse(customer.is_subscribed)
         self.assertEqual(customer.unsubscribed_at, first_time)
+
+
+class CustomerLanguageTests(TestCase):
+    def setUp(self):
+        self.customer = Customer.objects.create(email="buyer@example.com")
+
+    def test_defaults_to_the_site_language(self):
+        self.assertEqual(self.customer.language, settings.LANGUAGE_CODE)
+
+    def test_set_language_stores_and_persists(self):
+        self.customer.set_language("ru")
+
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.language, "ru")
+
+    def test_set_language_ignores_an_empty_value(self):
+        """A client that sends nothing must not reset a language we already know."""
+        self.customer.set_language("ru")
+
+        self.customer.set_language(None)
+
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.language, "ru")
+
+
+class CustomerQuerySetTests(TestCase):
+    """One definition of "a buyer" - the admin filter and the broadcast list share it."""
+
+    def setUp(self):
+        self.buyer = Customer.objects.create(email="buyer@example.com")
+        self.lead = Customer.objects.create(email="lead@example.com")
+        self.unsubscribed = Customer.objects.create(email="quiet@example.com", is_subscribed=False)
+
+        Order.objects.create(customer=self.buyer, total_price=10, paid_at=timezone.now())
+        Order.objects.create(customer=self.lead, total_price=10)
+        Order.objects.create(customer=self.unsubscribed, total_price=10, paid_at=timezone.now())
+
+    def test_buyers_are_the_ones_with_a_paid_at_stamp(self):
+        self.assertEqual(
+            set(Customer.objects.buyers().values_list("email", flat=True)),
+            {"buyer@example.com", "quiet@example.com"},
+        )
+
+    def test_leads_are_everyone_else(self):
+        self.assertEqual(set(Customer.objects.leads().values_list("email", flat=True)), {"lead@example.com"})
+
+    def test_subscribed_buyers_drop_the_opted_out(self):
+        self.assertEqual(
+            set(Customer.objects.subscribed_buyers().values_list("email", flat=True)), {"buyer@example.com"}
+        )
+
+    def test_a_buyer_is_counted_once_however_many_orders(self):
+        Order.objects.create(customer=self.buyer, total_price=10, paid_at=timezone.now())
+
+        self.assertEqual(Customer.objects.buyers().filter(email="buyer@example.com").count(), 1)
 
 
 class CustomerAdminFilterTests(TestCase):

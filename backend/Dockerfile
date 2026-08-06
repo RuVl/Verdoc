@@ -11,8 +11,8 @@ ENV PYTHONUNBUFFERED=1
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
-# Install cron
-RUN apt-get update && apt-get -y install cron && apt-get -y autoremove
+# Install cron, and gettext for `compilemessages` (translated e-mail copy)
+RUN apt-get update && apt-get -y install cron gettext && apt-get -y autoremove
 
 # Create the cronjob's log file
 RUN touch /var/log/cron.log

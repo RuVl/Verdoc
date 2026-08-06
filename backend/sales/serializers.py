@@ -34,10 +34,12 @@ class OrderSerializer(serializers.ModelSerializer):
     """
     Order serializer for making an order.
 
-    Accepts only email and a list of items; the price is computed here, never taken from the client.
+    Accepts only email, a list of items and the site language; the price is computed here,
+    never taken from the client.
     """
 
     email = serializers.EmailField(write_only=True, validators=[validate_email_domain])
+    language = serializers.ChoiceField(choices=settings.LANGUAGES, write_only=True, required=False)
     items = OrderItemSerializer(many=True, allow_empty=False)
     total_price = serializers.DecimalField(
         max_digits=10,
@@ -47,7 +49,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Order
-        fields = ["email", "items", "total_price"]
+        fields = ["email", "language", "items", "total_price"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -92,12 +94,17 @@ class OrderSerializer(serializers.ModelSerializer):
 
     @atomic
     def create(self, validated_data):
+        language = validated_data.pop("language", None)
+
         if self.reused_order is not None:
+            # Still worth recording: they may have switched the site language since the invoice.
+            self.reused_order.customer.set_language(language)
             return self.reused_order
 
         items_data = validated_data.pop("items")
         total_price = validated_data.pop("total_price")
         customer, _ = Customer.objects.get_or_create(email=validated_data.pop("email"))
+        customer.set_language(language)
 
         order = Order.objects.create(customer=customer, total_price=total_price, **validated_data)
 
@@ -120,10 +127,11 @@ class SendDownloadLinksSerializer(serializers.Serializer):
     """
     Serializer for sending download links.
 
-    Accepts only email.
+    Accepts the email and, optionally, the site language to answer in.
     """
 
     email = serializers.EmailField()
+    language = serializers.ChoiceField(choices=settings.LANGUAGES, required=False)
 
 
 class AllocationSerializer(serializers.ModelSerializer):

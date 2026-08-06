@@ -45,8 +45,10 @@ INSTALLED_APPS = [
     "corsheaders",
     "djmoney",
     "djmoney.contrib.exchange",
+    "tinymce",
     "catalog",
     "customer",
+    "mailing",
     "sales",
     # Legacy apps: kept read-only for their migrations until the data transfer is verified on prod.
     # They must stay after the new apps so that same-named management commands resolve to the new ones.
@@ -188,6 +190,10 @@ LANGUAGES = (
 )
 MODELTRANSLATION_DEFAULT_LANGUAGE = "en"
 
+# gettext catalogues for the e-mail copy. msgids are the English text, so only `ru` has a
+# catalogue here. `.mo` files are compiled by startup.sh and are not tracked.
+LOCALE_PATHS = [BASE_DIR / "locale"]
+
 # Timezone
 USE_TZ = True
 TIME_ZONE = "UTC"
@@ -223,3 +229,21 @@ DEFAULT_FROM_EMAIL = env.get_value("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER
 EMAIL_BACKEND = EMAIL_CONFIG.get("EMAIL_BACKEND")
 EMAIL_USE_TLS = EMAIL_CONFIG.get("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = EMAIL_CONFIG.get("EMAIL_USE_SSL", False)
+
+# TinyMCE (self-hosted GPL build, no API key) - WYSIWYG editor for Broadcast.body in admin.
+# promotion/branding False strip the "Upgrade" button and "Powered by Tiny" ads.
+# skin/content_css default to light; a capture-phase script in the broadcast change_form
+# swaps them to the dark variants when the admin theme is dark (see change_form.html).
+TINYMCE_DEFAULT_CONFIG = {
+    "height": 500,
+    "menubar": "edit insert format table",
+    "promotion": False,
+    "branding": False,
+    "skin": "oxide",
+    "content_css": "default",
+    "plugins": "advlist autolink lists link image charmap preview anchor "
+    "searchreplace visualblocks code fullscreen insertdatetime table help wordcount",
+    "toolbar": "undo redo | blocks | bold italic forecolor | "
+    "alignleft aligncenter alignright | bullist numlist | "
+    "link image table | removeformat | preview code fullscreen | help",
+}

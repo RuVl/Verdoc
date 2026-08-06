@@ -1,0 +1,32 @@
+{% extends "admin/change_form.html" %}
+
+{% comment %}
+Make the TinyMCE editor follow the admin's light/dark theme.
+django-tinymce reads each editor's config from `textarea.tinymce`'s data-mce-conf and inits
+it on a DOMContentLoaded handler. This script is emitted BEFORE the tinymce media (before
+block.super), so its DOMContentLoaded handler is registered first and runs first - it rewrites
+skin/content_css to the dark variants before init when the theme is dark.
+(The admin theme toggle sets data-theme on
+<html>; absent/"auto" falls back to the OS setting.)
+{% endcomment %}
+
+{% block extrahead %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var theme = document.documentElement.dataset.theme;
+        var dark = theme === 'dark' ||
+            ((!theme || theme === 'auto') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (!dark) return;
+        document.querySelectorAll('textarea.tinymce').forEach(function (area) {
+            try {
+                var conf = JSON.parse(area.dataset.mceConf);
+                conf.skin = 'oxide-dark';
+                conf.content_css = 'dark';
+                area.dataset.mceConf = JSON.stringify(conf);
+            } catch (e) { /* leave light theme on parse error */
+            }
+        });
+    });
+</script>
+{{ block.super }}
+{% endblock %}

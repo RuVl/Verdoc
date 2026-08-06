@@ -39,13 +39,3 @@ class Broadcast(models.Model):
 
     def __str__(self):
         return f"Broadcast {self.id} - {self.subject} ({self.status})"
-
-
-class Unsubscribe(models.Model):
-    """Suppression list: buyers who opted out of broadcasts."""
-
-    email = models.EmailField(unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.email

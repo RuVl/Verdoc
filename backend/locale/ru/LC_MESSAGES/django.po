@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: verdoc-backend\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-06 15:51+0000\n"
+"POT-Creation-Date: 2026-08-06 15:55+0000\n"
 "PO-Revision-Date: 2026-08-06 15:49+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -51,6 +51,10 @@ msgstr ""
 #: customer/models.py:83
 msgid "Customers"
 msgstr ""
+
+#: mailing/services.py:55
+msgid "Unsubscribe from this mailing list"
+msgstr "Отписаться от рассылки"
 
 #: mailing/templates/admin/mailing/broadcast/submit_line.html:19
 msgid "Close"

@@ -5,6 +5,7 @@ from django.core.mail import get_connection
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from customer.models import Customer
 from mailing.models import Broadcast
 from mailing.services import build_broadcast_email, get_broadcast_recipients
 
@@ -43,20 +44,21 @@ class Command(BaseCommand):
         for broadcast in broadcasts:
             self._send_one(broadcast, test=test, dry_run=dry_run)
 
-    def _resolve_recipients(self, broadcast: Broadcast, test: bool) -> list[str]:
+    def _resolve_recipients(self, broadcast: Broadcast, test: bool) -> list[Customer]:
         if test:
             if not broadcast.test_email:
                 raise CommandError(f"Broadcast {broadcast.id} has no test_email.")
-            return [broadcast.test_email]
-        return get_broadcast_recipients()
+            # Unsaved stand-in: the test address is an arbitrary inbox, not necessarily a customer.
+            return [Customer(email=broadcast.test_email)]
+        return list(get_broadcast_recipients())
 
     def _send_one(self, broadcast: Broadcast, test: bool, dry_run: bool):
         recipients = self._resolve_recipients(broadcast, test)
 
         if dry_run:
             self.stdout.write(f"[dry-run] Broadcast {broadcast.id}: {len(recipients)} recipients")
-            for addr in recipients:
-                self.stdout.write(f"  {addr}")
+            for customer in recipients:
+                self.stdout.write(f"  {customer.email}")
             return
 
         broadcast.status = Broadcast.Status.SENDING
@@ -69,16 +71,16 @@ class Command(BaseCommand):
         errors: list[str] = []
         connection = get_connection()  # opened lazily on first send()
         try:
-            for i, addr in enumerate(recipients):
+            for i, customer in enumerate(recipients):
                 if i and i % BATCH_SIZE == 0:
                     time.sleep(BATCH_PAUSE_SECONDS)
                 try:
-                    build_broadcast_email(connection, broadcast, addr).send()
+                    build_broadcast_email(connection, broadcast, customer).send()
                     broadcast.sent_count += 1
                 except Exception as e:  # noqa: BLE001 - one bad address must not stop the run
                     broadcast.failed_count += 1
-                    errors.append(f"{addr}: {e}")
-                    logger.exception("Broadcast %s failed for %s", broadcast.id, addr)
+                    errors.append(f"{customer.email}: {e}")
+                    logger.exception("Broadcast %s failed for %s", broadcast.id, customer.email)
         finally:
             connection.close()
 

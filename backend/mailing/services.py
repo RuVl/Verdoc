@@ -3,14 +3,17 @@ from django.contrib.sites.models import Site
 from django.core import signing
 from django.core.mail import EmailMultiAlternatives
 from django.http import HttpRequest
-from django.urls import reverse
 from django.utils.html import strip_tags
+from django.utils.translation import gettext as _
 
-from order.models import Order
+from customer.models import Customer
 
-from .models import Broadcast, Unsubscribe
+from .models import Broadcast
 
 UNSUBSCRIBE_SALT = "broadcast-unsubscribe"
+
+# Frontend route, not a Django one - keep it in step with the Vue router (`/unsubscribe/:token`).
+UNSUBSCRIBE_PATH = "/unsubscribe/{token}?lang={language}"
 
 
 def make_unsubscribe_token(email: str) -> str:
@@ -22,40 +25,41 @@ def read_unsubscribe_token(token: str) -> str:
     return signing.loads(token, salt=UNSUBSCRIBE_SALT)
 
 
-def make_unsubscribe_url(email: str, request: HttpRequest | None = None) -> str:
-    relative_path = reverse("unsubscribe", args=[make_unsubscribe_token(email)])
-    scheme = settings.SITE_SCHEME
+def make_unsubscribe_url(customer: Customer, request: HttpRequest | None = None) -> str:
+    """
+    Absolute link to the unsubscribe page.
+
+    The language rides along in the query string because the page is opened from an inbox, with
+    no idea of what the customer picked on the site - the router reads `?lang=` on every route.
+    """
+
+    path = UNSUBSCRIBE_PATH.format(token=make_unsubscribe_token(customer.email), language=customer.language)
     domain = Site.objects.get_current(request).domain
-    return f"{scheme}://{domain}{relative_path}"
+
+    return f"{settings.SITE_SCHEME}://{domain}{path}"
 
 
-def get_broadcast_recipients() -> list[str]:
-    """Unique emails of paid buyers, excluding those who unsubscribed."""
-    paid_statuses = [Order.OrderStatus.PAID, Order.OrderStatus.OVERPAID]
-    unsubscribed = Unsubscribe.objects.values_list("email", flat=True)
-    return list(
-        Order.objects.filter(status__in=paid_statuses)
-        .exclude(user_email__in=unsubscribed)
-        .values_list("user_email", flat=True)
-        .distinct()
-    )
+def get_broadcast_recipients():
+    """Buyers who have not opted out. One row per person, so there is nothing to de-duplicate."""
+    return Customer.objects.subscribed_buyers()
 
 
 def build_broadcast_email(
     connection,
     broadcast: Broadcast,
-    addr: str,
+    customer: Customer,
     request: HttpRequest | None = None,
 ) -> EmailMultiAlternatives:
     """Build a per-recipient email with an unsubscribe footer and List-Unsubscribe header."""
-    unsubscribe_url = make_unsubscribe_url(addr, request)
+    unsubscribe_url = make_unsubscribe_url(customer, request)
+    unsubscribe_label = _("Unsubscribe from this mailing list")
 
     # broadcast.body is HTML (WYSIWYG); derive a plain-text alternative from it.
-    text_body = f"{strip_tags(broadcast.body)}\n\n--\nОтписаться от рассылки: {unsubscribe_url}"
+    text_body = f"{strip_tags(broadcast.body)}\n\n--\n{unsubscribe_label}: {unsubscribe_url}"
     html_body = (
         f"{broadcast.body}"
         f'<hr><p style="font-size:12px;color:#888">'
-        f'<a href="{unsubscribe_url}">Отписаться от рассылки</a></p>'
+        f'<a href="{unsubscribe_url}">{unsubscribe_label}</a></p>'
     )
 
     # from_email=None -> settings.DEFAULT_FROM_EMAIL
@@ -63,7 +67,7 @@ def build_broadcast_email(
         subject=broadcast.subject,
         body=text_body,
         from_email=None,
-        to=[addr],
+        to=[customer.email],
         connection=connection,
         headers={"List-Unsubscribe": f"<{unsubscribe_url}>"},
     )

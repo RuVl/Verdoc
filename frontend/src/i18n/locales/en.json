@@ -69,7 +69,8 @@
     "info": "Rules of the store",
     "main": "Main",
     "my_purchases": "My purchases",
-    "support": "Support"
+    "support": "Support",
+    "unsubscribe": "Unsubscribe"
   },
   "site_info": {
     "description": "Clean documents, we sell in one hand. Write to customer service if you need wholesale or if the document you need is not on the website.",
@@ -104,5 +105,11 @@
       "first": "Documents from various countries for",
       "second": "passing verification"
     }
+  },
+  "unsubscribe": {
+    "done": "Done. {email} will no longer receive the mailing list.",
+    "error": "Could not unsubscribe. Try opening the link again in a moment.",
+    "invalid_link": "This unsubscribe link is broken or out of date. Write to support and we will do it by hand.",
+    "loading": "Unsubscribing you..."
   }
 }

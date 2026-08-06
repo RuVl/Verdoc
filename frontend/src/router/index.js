@@ -36,6 +36,13 @@ const routes = [
         meta: {parent: 'main', name: 'routes.my_purchases'}
     },
     {
+        // Reached from an e-mail footer; the token is signed, so the page needs nothing else.
+        name: 'unsubscribe',
+        path: '/unsubscribe/:token',
+        component: () => import("@/views/Unsubscribe.vue"),
+        meta: {parent: 'main', name: 'routes.unsubscribe'}
+    },
+    {
         name: 'cart',
         path: '/cart',
         component: () => import("@/views/Cart.vue"),

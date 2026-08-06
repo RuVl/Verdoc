@@ -6,7 +6,9 @@ from django.http import HttpResponseRedirect
 from django.urls import reverse
 from tinymce.widgets import TinyMCE
 
-from .models import Broadcast, Unsubscribe
+from customer.models import Customer
+
+from .models import Broadcast
 from .services import build_broadcast_email
 
 # Shown at the top of the add/edit form so the sending flow is not a mystery.
@@ -95,9 +97,12 @@ class BroadcastAdmin(admin.ModelAdmin):
         if not broadcast.test_email:
             self.message_user(request, f"Broadcast {broadcast.id}: no test_email set", messages.WARNING)
             return
+        # Unsaved stand-in: the test address is an arbitrary inbox, not necessarily a customer.
+        recipient = Customer(email=broadcast.test_email)
+
         connection = get_connection()  # opened lazily on first send()
         try:
-            build_broadcast_email(connection, broadcast, broadcast.test_email, request).send()
+            build_broadcast_email(connection, broadcast, recipient, request).send()
             self.message_user(
                 request, f"Broadcast {broadcast.id}: test sent to {broadcast.test_email}", messages.SUCCESS
             )
@@ -146,16 +151,3 @@ class BroadcastAdmin(admin.ModelAdmin):
     def queue_for_sending(self, request, queryset: QuerySet[Broadcast]):
         for broadcast in queryset:
             self._queue_one(request, broadcast)
-
-
-@admin.register(Unsubscribe)
-class UnsubscribeAdmin(admin.ModelAdmin):
-    list_display = ("email", "created_at")
-    search_fields = ("email",)
-    readonly_fields = ("email", "created_at")
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False

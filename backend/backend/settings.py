@@ -87,7 +87,9 @@ WSGI_APPLICATION = "backend.wsgi.application"
 
 # Site settings
 # SITE_ID = 1
-SITE_SCHEME = "https"  # Uses to build absolute url
+# Used to build absolute URLs (download links, the purchases page link in e-mails).
+# Overridable so a local run can hand out http:// links that actually open.
+SITE_SCHEME = env("SITE_SCHEME", default="https")
 
 # Customer access lifetimes
 PURCHASES_PAGE_TTL = timedelta(hours=24)  # Customer.access_token
@@ -206,9 +208,9 @@ PLISIO_SECRET_KEY = env("PLISIO_SECRET_KEY")
 MIRROR_PLISIO_SECRET_KEY = env("MIRROR_PLISIO_SECRET_KEY")
 
 # Email config
-EMAIL_CONFIG = env.email(
-    backend="django.core.mail.backends.smtp.EmailBackend",
-)
+# The backend follows the scheme of EMAIL_URL (smtp:// in production, consolemail:// in dev).
+# Passing `backend=` here would pin it to SMTP and silently ignore the scheme.
+EMAIL_CONFIG = env.email("EMAIL_URL")
 
 EMAIL_HOST_USER = EMAIL_CONFIG.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = EMAIL_CONFIG.get("EMAIL_HOST_PASSWORD")

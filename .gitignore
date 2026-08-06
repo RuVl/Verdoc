@@ -22,6 +22,10 @@ secrets/
 # Logging files
 *.log
 
+# Uploaded product files. MEDIA_ROOT is unset, so FileField(upload_to="products/")
+# lands next to manage.py - in the container that is /app, locally it is backend/.
+backend/products/
+
 # Test docker-compose
 test*.yml
 

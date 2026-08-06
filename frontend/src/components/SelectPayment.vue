@@ -1,6 +1,6 @@
 <script setup>
 import {reactive} from "vue";
-import Passport from "@/models/Passport.js";
+import Product from "@/models/Product.js";
 import {useOrderStore} from "@/stores/order.js";
 import ModalWindow from "@/components/ModalWindow.vue";
 import PrettyInput from "@/components/PrettyInput.vue";
@@ -15,7 +15,7 @@ const payment_form = reactive({
 })
 
 const props = defineProps({
-  passport: Passport
+  product: Product
 });
 
 const orderStore = useOrderStore();
@@ -24,7 +24,7 @@ function buy() {
   const payment_method = orderStore.payment_methods[payment_form.method];
   if (payment_method.name !== 'plisio') return;
 
-  if (props.passport) orderStore.buyPassport(props.passport, payment_form.email);
+  if (props.product) orderStore.buyProduct(props.product, payment_form.email);
   else orderStore.makeOrder(payment_form.email);
 
   is_opened.value = false;

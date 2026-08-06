@@ -31,12 +31,12 @@ onMounted(fetchCountries);
 
 const cartStore = useCartStore();
 
-const selectedPassport = ref(null);
+const selectedProduct = ref(null);
 const instant_buy = ref(false);
 const select_payment = ref(false);
 
-function add2cart(passport) {
-  cartStore.addItem(passport);
+function add2cart(product) {
+  cartStore.addItem(product);
 
   if (instant_buy.value)
     instant_buy.value = false;
@@ -63,23 +63,23 @@ function add2cart(passport) {
       </span>
     </div>
     <hr>
-    <ProductsList v-for="country in countries" :key="country.id" :elements="country.passports">
+    <ProductsList v-for="country in countries" :key="country.id" :elements="country.products">
       <template #title>
         <CountryFlag :country="country.code" class="flag-icon" size="big"/>
         <span>{{ country.name }}</span>
       </template>
-      <template #default="{element: passport}">
+      <template #default="{element: product}">
         <CountryFlag :country="country.code" class="flag-icon item"/>
-        <span class="product-name">{{ passport.name }}</span>
+        <span class="product-name">{{ product.name }}</span>
         <span class="counters">
-          <CounterShow>{{ passport.max_quantity }} {{ $t('products.count') }}</CounterShow>
-          <CounterShow>{{ passport.formattedPrice() }}</CounterShow>
+          <CounterShow>{{ product.max_quantity }} {{ $t('products.count') }}</CounterShow>
+          <CounterShow>{{ product.formattedPrice() }}</CounterShow>
         </span>
-        <CommonButton class="buy-now-btn" @click="selectedPassport=passport; instant_buy=true">
+        <CommonButton class="buy-now-btn" @click="selectedProduct=product; instant_buy=true">
           <span class="longer">{{ $t('buttons.buy_now') }}</span>
           <span class="shorter">{{ $t('buttons.buy') }}</span>
         </CommonButton>
-        <a class="add2cart-btn" @click="add2cart(passport)">
+        <a class="add2cart-btn" @click="add2cart(product)">
           <CartIcon/>
           <span>{{ $t('buttons.to_cart') }}</span>
         </a>
@@ -91,12 +91,12 @@ function add2cart(passport) {
       </template>
       <template #default>
         <div class="instant-buy-dialog">
-          <span class="product-name">{{ selectedPassport.name }}</span>
-          <CounterChanger v-model:item="selectedPassport" class="quantity-counter" counter_name="quantity"/>
+          <span class="product-name">{{ selectedProduct.name }}</span>
+          <CounterChanger v-model:item="selectedProduct" class="quantity-counter" counter_name="quantity"/>
           {{ $t('products.modal_window.total_amount') }}
-          <span class="total-cost">{{ selectedPassport.formattedPrice(true) }}</span>
+          <span class="total-cost">{{ selectedProduct.formattedPrice(true) }}</span>
           <div class="buttons-block">
-            <button class="add2cart-btn" type="button" @click="add2cart(selectedPassport)">
+            <button class="add2cart-btn" type="button" @click="add2cart(selectedProduct)">
               <CartIcon size="small"/>
               {{ $t('buttons.add2cart') }}
             </button>
@@ -108,7 +108,7 @@ function add2cart(passport) {
         </div>
       </template>
     </ModalWindow>
-    <SelectPayment v-model:is_opened="select_payment" :passport="selectedPassport"/>
+    <SelectPayment v-model:is_opened="select_payment" :product="selectedProduct"/>
   </Block>
 </template>
 

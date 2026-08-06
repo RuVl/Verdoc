@@ -28,19 +28,18 @@ class ProductSerializer(TranslationFieldsMixin, serializers.ModelSerializer):
     """
     Product serializer for sending product info.
 
-    Keeps the `quantity` key the storefront already speaks; behind it is the derived stock count,
-    so the queryset has to be annotated with `with_available()`. The key is renamed in R2 together
-    with the frontend.
+    `available` is the derived stock count, so the queryset has to be annotated with
+    `with_available()` - there is no column behind it.
     """
 
-    quantity = serializers.IntegerField(source="available", read_only=True)
+    available = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Product
         fields = (
             "id",
             "name",
-            "quantity",
+            "available",
             "price",
             "price_currency",
         )  # price_currency - dynamic field from MoneyField
@@ -49,14 +48,11 @@ class ProductSerializer(TranslationFieldsMixin, serializers.ModelSerializer):
 class CountrySerializer(TranslationFieldsMixin, serializers.ModelSerializer):
     """Country serializer for sending all country's products."""
 
-    # `passports` is the API name the storefront still speaks (R1 compatibility layer); the method
-    # is named after the model, so `method_name` spells the mapping out instead of hiding it in
-    # DRF's get_<field> convention. The field itself is renamed in R2 together with the frontend.
-    passports = serializers.SerializerMethodField(method_name="get_products")
+    products = serializers.SerializerMethodField()
 
     class Meta:
         model = Country
-        fields = ("id", "name", "code", "passports")
+        fields = ("id", "name", "code", "products")
 
     def get_products(self, obj):
         products = obj.products.with_available().filter(available__gt=0)

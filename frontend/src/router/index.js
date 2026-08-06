@@ -29,6 +29,13 @@ const routes = [
         meta: {parent: 'main', name: 'routes.my_purchases'}
     },
     {
+        // The token is the whole authentication - it arrives by e-mail and expires, see ADR-0004.
+        name: 'purchases-list',
+        path: '/purchases/:token',
+        component: () => import("@/views/Purchases.vue"),
+        meta: {parent: 'main', name: 'routes.my_purchases'}
+    },
+    {
         name: 'cart',
         path: '/cart',
         component: () => import("@/views/Cart.vue"),

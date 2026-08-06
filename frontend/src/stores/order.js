@@ -15,13 +15,13 @@ export const useOrderStore = defineStore('order', {
 
             const cartStore = useCartStore();
             const items = cartStore.cartItems.map(item => ({
-                passport_id: item.id,
+                product_id: item.id,
                 quantity: item.quantity,
             }));
 
             try {
                 const response = await apiClient.post('/order/', {
-                    user_email: email,
+                    email: email,
                     items: items,
                 });
                 cartStore.clearCart();
@@ -30,15 +30,15 @@ export const useOrderStore = defineStore('order', {
                 console.error('Error creating order:', error);
             }
         },
-        async buyPassport(passport, email) {
-            console.log(`Buy passport ${passport.name} for ${email}`);
+        async buyProduct(product, email) {
+            console.log(`Buy product ${product.name} for ${email}`);
 
             try {
                 const response = await apiClient.post('/order/', {
-                    user_email: email,
+                    email: email,
                     items: [{
-                        passport_id: passport.id,
-                        quantity: passport.quantity,
+                        product_id: product.id,
+                        quantity: product.quantity,
                     }],
                 });
                 window.location.href = response.data.redirect_url;

@@ -181,6 +181,14 @@ dev-superuser: dev-infra ## Создать суперпользователя в
 dev-test: dev-infra ## Тесты локальным backend (t="sales.tests.DeliverTests" - только часть)
 	$(MANAGE_DEV) test $(if $(t),$(t),catalog customer mailing sales)
 
+.PHONY: dev-messages
+dev-messages: ## Пересобрать backend/locale/ru/.../django.po из исходников (нужен gettext)
+	$(MANAGE_DEV) makemessages -l ru
+
+.PHONY: dev-compilemessages
+dev-compilemessages: ## Скомпилировать .po в .mo локально (в контейнере это делает startup.sh)
+	$(MANAGE_DEV) compilemessages --ignore=.venv
+
 # --- Django (внутри контейнера backend) -------------------------------------
 
 .PHONY: manage
@@ -202,6 +210,14 @@ test: ## Тесты в контейнере (t="sales" - только часть
 .PHONY: collectstatic
 collectstatic: ## Собрать статику
 	$(MANAGE) collectstatic --no-input
+
+.PHONY: messages
+messages: ## Пересобрать .po из исходников в контейнере
+	$(MANAGE) makemessages -l ru
+
+.PHONY: compilemessages
+compilemessages: ## Скомпилировать .po в .mo в контейнере (startup.sh делает это сам)
+	$(MANAGE) compilemessages --ignore=.venv
 
 .PHONY: superuser
 superuser: ## Создать суперпользователя

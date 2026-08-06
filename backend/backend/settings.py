@@ -190,6 +190,10 @@ LANGUAGES = (
 )
 MODELTRANSLATION_DEFAULT_LANGUAGE = "en"
 
+# gettext catalogues for the e-mail copy. msgids are the English text, so only `ru` has a
+# catalogue here. `.mo` files are compiled by startup.sh and are not tracked.
+LOCALE_PATHS = [BASE_DIR / "locale"]
+
 # Timezone
 USE_TZ = True
 TIME_ZONE = "UTC"

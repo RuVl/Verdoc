@@ -29,6 +29,9 @@ backend/products/
 # Collected static files (collectstatic)
 backend/static/
 
+# Compiled gettext catalogues (built by startup.sh / `make compilemessages`)
+*.mo
+
 # Test docker-compose
 test*.yml
 

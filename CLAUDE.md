@@ -32,13 +32,20 @@ make manage c="showmigrations"            # inside the backend container
 make dev-manage c="seed_testdata --flush" # on the host against the dev db (auto-brings up dev-infra)
 # The named targets below are just shortcuts for common commands - use `manage`/`dev-manage` for the rest.
 
-# Django (run inside the backend container) - apps are: catalog, customer, sales
+# Django (run inside the backend container) - apps are: catalog, customer, mailing, sales
 # (`passport` and `order` are frozen legacy apps - migrations only, see Architecture)
 make migrate       # make manage c=showmigrations to inspect first
-make makemigrations m="catalog customer sales"
+make makemigrations m="catalog customer mailing sales"
 make superuser
 make update-rates  # fetch currency rates (djmoney); required before first orders and for currency switch
 make expire        # release allocations of expired PENDING orders (also cron, every 10 min)
+make broadcast     # send QUEUED broadcasts (also cron, every 15 min); c="--id N --dry-run --test"
+
+# Translations (gettext; the e-mail copy lives in backend/locale/ru/LC_MESSAGES/django.po)
+make messages / make compilemessages          # in the container
+make dev-messages / make dev-compilemessages  # on the host
+# .mo files are build output and untracked: startup.sh compiles them, and the test targets
+# depend on compilemessages so a run never asserts against a stale catalogue.
 
 # Tests
 make test          # in the container; make dev-test on the host (t="sales" or t="sales.tests.DeliverTests")
@@ -75,7 +82,7 @@ make pre-commit-install / make pre-commit
 
 ### Order / fulfillment flow (the core domain)
 
-Backend apps: `catalog` (products + stock), `customer` (buyers and their access), `sales` (checkout, payment, delivery). Domain vocabulary is in [`CONTEXT.md`](./CONTEXT.md), decisions in [`docs/adr/`](./docs/adr/), the schema in [`docs/db-refactoring/target-schema.md`](./docs/db-refactoring/target-schema.md).
+Backend apps: `catalog` (products + stock), `customer` (buyers and their access), `sales` (checkout, payment, delivery), `mailing` (broadcasts). Domain vocabulary is in [`CONTEXT.md`](./CONTEXT.md), decisions in [`docs/adr/`](./docs/adr/), the schema in [`docs/db-refactoring/target-schema.md`](./docs/db-refactoring/target-schema.md).
 
 `passport` and `order` are **frozen legacy apps**: models and migrations only, kept so the data-transfer migration stays reversible. Nothing new goes in them, and they get dropped by a separate release.
 
@@ -86,6 +93,8 @@ Backend apps: `catalog` (products + stock), `customer` (buyers and their access)
    - `GET /api/order/file/<email>/<uuid>/` is the pre-R2 route, kept one release for links already sitting in inboxes (`LegacyDownloadLinksView`).
    - A dead SMTP never costs the customer their order: the callback logs and still answers 200 (a Plisio retry would send nothing, `paid_at` is stamped), and `send-links` answers 502 so the form can say to try again.
 5. **Expiry** - `Order.is_expired()` (~1h). The `expire_transactions` command runs via cron in the backend container (every 10 min, one transaction per order) and releases allocations of stale PENDING orders.
+
+**Who counts as a buyer is defined once.** `CustomerQuerySet.buyers()` / `leads()` / `subscribed_buyers()` in `customer/models.py`, keyed off `paid_at__isnull=False` - the stamp `Order.mark_paid()` writes exactly once - via `Exists()` rather than a join, so it never disturbs counts a caller annotates. The admin filter and the broadcast recipient list both go through it; do not write a second definition.
 
 **Checkout is deliberately expensive to abuse** ([ADR-0008](./docs/adr/0008-checkout-costs-the-attacker-something.md)): an unpaid order holds stock, so the request itself is rate limited in nginx (`frontend/nginx/00-limits.conf`, `limit_req` on `/api/order/` and `/api/send-links/`; the Plisio callback stays unlimited), capped by `MAX_ITEM_QUANTITY` / `MAX_ORDER_ITEMS`, checked against the e-mail domain's MX record (`customer/validators.py`, fails open, `VALIDATE_EMAIL_MX`), and a repeated checkout of the same cart is sent back to the live invoice instead of reserving a second copy (`Order.objects.reusable()`). A `Customer` row is created at checkout, before payment, so abandoned checkouts leave leads behind - they are kept as funnel data, and the admin list filters down to paying customers by default.
 
@@ -100,6 +109,14 @@ The same deployment serves a primary domain and a "mirror" domain. This shows up
 - **nginx**: `frontend/nginx/site.conf.template` and `mirror.conf.template` are rendered by nginx's `envsubst` (only the `DOMAIN` var is substituted; the Dockerfile copies them as `verif-docs.conf.template` / `photo-scan.conf.template`). Two plain (non-template) files are shared by both: `00-limits.conf` holds the `limit_req` zones, which belong to the `http` context and must be declared exactly once, and `proxy-backend.conf` holds the `proxy_pass` block that every backend location includes. Keep the two site templates in step - anything added to one belongs in the other. Validate a config change with `nginx -t` before deploying it (render the templates with `sed`, mount them into a throwaway `nginx` container with dummy certs).
 - **Plisio**: the primary domain uses `PLISIO_SECRET_KEY`, everything else uses `MIRROR_PLISIO_SECRET_KEY` (`OrderCreateView` picks by `Site.objects.get_current().domain == ALLOWED_HOSTS[0]`). The callback validates against both keys.
 
+### Broadcasts (`mailing`)
+
+A `Broadcast` is written in the admin (TinyMCE, one editor per language), saved as a **draft**, test-mailed to `test_email` (one message per language), then **queued**; cron runs `broadcast` every 15 min. Recipients are `Customer.objects.subscribed_buyers()`.
+
+- **The sender is resumable, not restartable.** `BroadcastDelivery` is one row per `(broadcast, customer)` with a `UniqueConstraint`. The command first writes `PENDING` rows for everyone (`bulk_create(ignore_conflicts=True)`), then walks `PENDING` + `FAILED`, closing each row as its message goes out. So a crash costs the one message in flight, a repeated run cannot mail anyone twice, and re-queueing retries only what failed. `Broadcast` has **no counters** - they are annotations over the deliveries in `BroadcastAdmin.get_queryset`.
+- **Bilingual from one row.** `mailing/translation.py` puts `subject` and `body` through modeltranslation, and `build_broadcast_email` reads them inside `translation.override(customer.language)`. A language left empty falls back to the site default. `BroadcastAdminForm.widgets` is keyed by the plain `body` - `TranslationAdmin` copies that widget onto `body_en` / `body_ru`, which is the only reason both get an editor.
+- **Opting out is `Customer.is_subscribed`**, not a suppression table. The link in the footer goes to the SPA route `/unsubscribe/:token` (signed with `django.core.signing`, salt `broadcast-unsubscribe`, language in `?lang=`), which calls `POST /api/unsubscribe/<token>/`. It must stay a **POST**: Gmail and Outlook pre-fetch every URL in a message, so opting out on GET would unsubscribe people who never clicked.
+
 ### Email delivery
 
 Download links are emailed via whatever `EMAIL_URL` points to. **In production that is SendPulse (SMTP)** - the active path. A **backup** DKIM-signing relay is available as the `mail` service in `docker-compose.yaml`, on the ready-made `boky/postfix` image, behind a compose **profile** so it does not start by default:
@@ -109,13 +126,19 @@ Download links are emailed via whatever `EMAIL_URL` points to. **In production t
 
 ### i18n
 
-Both ends are bilingual (en/ru). Backend uses **django-modeltranslation** - translated fields are declared in `catalog/translation.py` (`Country.name`, `Product.name`); the country list endpoint honors a `?lang=` query param. `passport/translation.py` is still there on purpose: dropping it would make modeltranslation want to remove the legacy `name_en`/`name_ru` columns. Frontend uses vue-i18n (`src/i18n/locales/`). Note: `sales/utils.py` email copy is hard-coded Russian.
+Both ends are bilingual (en/ru). Backend uses **django-modeltranslation** for model content - translated fields are declared in `catalog/translation.py` (`Country.name`, `Product.name`) and `mailing/translation.py` (`Broadcast.subject`, `Broadcast.body`); the country list endpoint honors a `?lang=` query param. `passport/translation.py` is still there on purpose: dropping it would make modeltranslation want to remove the legacy `name_en`/`name_ru` columns. Frontend uses vue-i18n (`src/i18n/locales/`), and the router reads `?lang=` on any route, which is how a link from an e-mail opens in the right language.
+
+**E-mail copy is gettext, and the language comes from `Customer.language`** ([ADR-0009](./docs/adr/0009-email-follows-the-customers-language.md)). It cannot come from the request: the delivery mail is sent from the Plisio webhook, where the customer's browser is gone. The storefront posts `language` with the checkout and the send-links form; `sales/utils.send_purchases_link` and `mailing/services.build_broadcast_email` both wrap themselves in `translation.override(customer.language)`. Strings live in `backend/locale/ru/LC_MESSAGES/django.po` - msgids are the English text, so there is no `en` catalogue. `makemessages` also picks up model verbose names and choice labels; leave those empty, they are admin-only. `.mo` files are untracked build output (`startup.sh` and the `make test` targets compile them); both compile calls pass `--ignore=.venv`, because the venv lives inside the project directory here.
 
 ### Frontend
 
 Vue 3 + Pinia (with `pinia-plugin-persistedstate` for the cart), Vue Router, axios. Stores in `src/stores/` (`cart`, `currencies`, `order`, `settings`, `languages`) hold client state; currency switching is client-side using rates from `GET /api/exchange-rates/`.
 
 Two routes share the "my purchases" name and they are not the same page: `/purchases` (`views/MyPurchases.vue`) is the e-mail form you land on when the link is lost, `/purchases/:token` (`views/Purchases.vue`) is the page the e-mail links to. The token in the URL is the whole authentication, so a 404 from any of its calls means "the link is spent" and the page says so instead of retrying. Prices there come from the order's snapshot and are **not** run through the currency switcher - they are what was actually charged.
+
+`/unsubscribe/:token` (`views/Unsubscribe.vue`) is the third token page; it POSTs on mount (see Broadcasts above for why it is not a GET).
+
+Anything that fetches shows which of "loading", "failed" and "empty" it is in - `Home.vue`, `Purchases.vue` and `Unsubscribe.vue` all follow the same shape. An empty result and a dead backend must never look alike.
 
 ### Responsive layout
 

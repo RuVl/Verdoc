@@ -1,12 +1,17 @@
+from io import StringIO
+from unittest.mock import Mock, patch
+
+from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core import mail, signing
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from customer.models import Customer
-from mailing.models import Broadcast
+from mailing.models import Broadcast, BroadcastDelivery
 from mailing.services import (
     UNSUBSCRIBE_SALT,
     build_broadcast_email,
@@ -79,6 +84,123 @@ class BroadcastEmailTests(TestCase):
 
         self.assertIn("Hello", message.body)
         self.assertNotIn("<p>", message.body)
+
+
+class BroadcastCommandTests(TestCase):
+    """The ledger is what makes the sender resumable - these are the invariants it buys."""
+
+    def setUp(self):
+        Site.objects.update_or_create(pk=1, defaults={"domain": "testserver", "name": "test"})
+        self.broadcast = Broadcast.objects.create(
+            subject="News", body="<p>Hello</p>", status=Broadcast.Status.QUEUED, test_email="tester@example.com"
+        )
+        self.first = make_buyer("one@example.com")
+        self.second = make_buyer("two@example.com")
+
+    def run_broadcast(self, **options):
+        call_command("broadcast", stdout=StringIO(), **options)
+        self.broadcast.refresh_from_db()
+
+    def test_every_recipient_gets_one_message(self):
+        self.run_broadcast()
+
+        self.assertEqual(
+            {address for message in mail.outbox for address in message.to},
+            {"one@example.com", "two@example.com"},
+        )
+        self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
+        self.assertEqual(self.broadcast.deliveries.filter(state=BroadcastDelivery.State.SENT).count(), 2)
+
+    def test_a_second_run_does_not_send_again(self):
+        self.run_broadcast()
+        mail.outbox.clear()
+
+        self.run_broadcast(id=self.broadcast.id)
+
+        self.assertEqual(mail.outbox, [])
+
+    def test_an_interrupted_run_resumes_where_it_stopped(self):
+        # First recipient goes out, then the world ends.
+        with (
+            patch("mailing.management.commands.broadcast.build_broadcast_email") as build,
+            self.assertLogs("mailing.management.commands.broadcast", level="ERROR"),
+        ):
+            build.side_effect = [Mock(), RuntimeError("smtp died")]
+            self.run_broadcast()
+
+        self.assertEqual(self.broadcast.deliveries.outstanding().count(), 1)
+        self.assertEqual(self.broadcast.status, Broadcast.Status.FAILED)
+
+        mail.outbox.clear()
+        self.run_broadcast(id=self.broadcast.id)
+
+        # Only the one that failed is retried, and the broadcast closes clean.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
+
+    def test_a_failure_is_recorded_against_the_recipient(self):
+        with patch("mailing.management.commands.broadcast.build_broadcast_email") as build:
+            build.side_effect = RuntimeError("mailbox full")
+            with self.assertLogs("mailing.management.commands.broadcast", level="ERROR"):
+                self.run_broadcast()
+
+        delivery = self.broadcast.deliveries.first()
+        self.assertEqual(delivery.state, BroadcastDelivery.State.FAILED)
+        self.assertIn("mailbox full", delivery.error)
+
+    def test_someone_who_opted_out_after_the_plan_is_still_skipped_next_time(self):
+        self.first.unsubscribe()
+
+        self.run_broadcast()
+
+        self.assertEqual([message.to for message in mail.outbox], [["two@example.com"]])
+        self.assertEqual(self.broadcast.deliveries.count(), 1)
+
+    def test_a_test_run_writes_no_ledger_rows(self):
+        self.run_broadcast(test=True)
+
+        self.assertEqual([message.to for message in mail.outbox], [["tester@example.com"]])
+        self.assertEqual(BroadcastDelivery.objects.count(), 0)
+
+    def test_a_dry_run_sends_nothing_and_plans_nothing(self):
+        self.run_broadcast(dry_run=True)
+
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(BroadcastDelivery.objects.count(), 0)
+        self.assertEqual(self.broadcast.status, Broadcast.Status.QUEUED)
+
+    def test_only_queued_broadcasts_are_picked_up(self):
+        Broadcast.objects.create(subject="Draft", body="<p>x</p>")
+
+        self.run_broadcast()
+
+        self.assertEqual(len(mail.outbox), 2)
+
+
+class BroadcastAdminTests(TestCase):
+    """The counters are annotations now, so the list page is what proves they still add up."""
+
+    def setUp(self):
+        Site.objects.update_or_create(pk=1, defaults={"domain": "testserver", "name": "test"})
+        self.broadcast = Broadcast.objects.create(subject="News", body="<p>Hello</p>", status=Broadcast.Status.QUEUED)
+        make_buyer("one@example.com")
+        make_buyer("two@example.com")
+
+        admin_user = User.objects.create_superuser("admin", "admin@example.com", "pw")
+        self.client.force_login(admin_user)
+
+    def test_the_counts_follow_the_delivery_rows(self):
+        with patch("mailing.management.commands.broadcast.build_broadcast_email") as build:
+            build.side_effect = [Mock(), RuntimeError("smtp died")]
+            with self.assertLogs("mailing.management.commands.broadcast", level="ERROR"):
+                call_command("broadcast", stdout=StringIO())
+
+        response = self.client.get(reverse("admin:mailing_broadcast_changelist"))
+        row = response.context["cl"].result_list[0]
+
+        self.assertEqual(row.recipients_count, 2)
+        self.assertEqual(row.sent_count, 1)
+        self.assertEqual(row.failed_count, 1)
 
 
 class UnsubscribeViewTests(TestCase):

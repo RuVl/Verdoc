@@ -1,15 +1,20 @@
 from django import forms
 from django.contrib import admin, messages
 from django.core.mail import get_connection
-from django.db.models import QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils.html import format_html_join
 from tinymce.widgets import TinyMCE
 
 from customer.models import Customer
 
-from .models import Broadcast
+from .models import Broadcast, BroadcastDelivery
 from .services import build_broadcast_email
+
+# The whole error log used to live on the Broadcast row; now it is one row per failed recipient,
+# so the form shows a readable head of it instead of everything.
+FAILURES_SHOWN = 20
 
 # Shown at the top of the add/edit form so the sending flow is not a mystery.
 HELP_HTML = (
@@ -19,9 +24,10 @@ HELP_HTML = (
     "<li>Fill in subject and body, save the draft.</li>"
     "<li>Select it in the list and run <b>Send test email</b> to preview it on <code>test_email</code>.</li>"
     "<li>Run <b>Queue / re-queue selected for sending</b>. A cron job sends the queue about every 15 minutes.</li>"
-    "<li>One email per recipient goes to all paid buyers, minus the unsubscribe list. "
-    "Watch <code>status</code> and <code>sent_count</code> / <code>failed_count</code>.</li>"
-    "<li>If a broadcast ends up <b>FAILED</b>, fix the issue and run <b>Queue / re-queue</b> again.</li>"
+    "<li>One email per recipient goes to every paid buyer who has not opted out. "
+    "Watch <code>status</code> and the sent / failed counts.</li>"
+    "<li>If a broadcast ends up <b>FAILED</b>, fix the issue and run <b>Queue / re-queue</b> again - "
+    "the sender only retries the recipients it did not reach.</li>"
     "</ol>"
 )
 
@@ -40,7 +46,7 @@ class BroadcastAdmin(admin.ModelAdmin):
         "id",
         "subject",
         "status",
-        "total_recipients",
+        "recipients_count",
         "sent_count",
         "failed_count",
         "created_at",
@@ -50,10 +56,10 @@ class BroadcastAdmin(admin.ModelAdmin):
     search_fields = ("subject",)
     readonly_fields = (
         "status",
-        "total_recipients",
+        "recipients_count",
         "sent_count",
         "failed_count",
-        "error_log",
+        "failures",
         "created_at",
         "sent_at",
     )
@@ -65,10 +71,10 @@ class BroadcastAdmin(admin.ModelAdmin):
                 "classes": ("collapse",),
                 "fields": (
                     "status",
-                    "total_recipients",
+                    "recipients_count",
                     "sent_count",
                     "failed_count",
-                    "error_log",
+                    "failures",
                     "created_at",
                     "sent_at",
                 ),
@@ -76,6 +82,40 @@ class BroadcastAdmin(admin.ModelAdmin):
         ),
     )
     actions = ["send_test", "queue_for_sending"]
+
+    def get_queryset(self, request):
+        # The counters are derived from the delivery rows - there is nothing to keep in sync.
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(
+                recipients_count=Count("deliveries", distinct=True),
+                sent_count=Count("deliveries", filter=Q(deliveries__state=BroadcastDelivery.State.SENT), distinct=True),
+                failed_count=Count(
+                    "deliveries", filter=Q(deliveries__state=BroadcastDelivery.State.FAILED), distinct=True
+                ),
+            )
+        )
+
+    @admin.display(description="Recipients", ordering="recipients_count")
+    def recipients_count(self, obj):
+        return obj.recipients_count
+
+    @admin.display(description="Sent", ordering="sent_count")
+    def sent_count(self, obj):
+        return obj.sent_count
+
+    @admin.display(description="Failed", ordering="failed_count")
+    def failed_count(self, obj):
+        return obj.failed_count
+
+    @admin.display(description="Failures")
+    def failures(self, obj):
+        rows = obj.deliveries.filter(state=BroadcastDelivery.State.FAILED).select_related("customer")[:FAILURES_SHOWN]
+        if not rows:
+            return "-"
+
+        return format_html_join("\n", "<div>{}: {}</div>", ((row.customer.email, row.error) for row in rows))
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         # Creating/editing a broadcast is never a "send" - drop the confusing extra save buttons.
@@ -151,3 +191,24 @@ class BroadcastAdmin(admin.ModelAdmin):
     def queue_for_sending(self, request, queryset: QuerySet[Broadcast]):
         for broadcast in queryset:
             self._queue_one(request, broadcast)
+
+
+@admin.register(BroadcastDelivery)
+class BroadcastDeliveryAdmin(admin.ModelAdmin):
+    """
+    Read-only: this is the sender's ledger, written by the `broadcast` command.
+
+    Editing a row by hand would either resend a message or hide one that never went out.
+    """
+
+    list_display = ("broadcast", "customer", "state", "sent_at")
+    list_filter = ("state", "broadcast")
+    search_fields = ("customer__email",)
+    list_select_related = ("broadcast", "customer")
+    readonly_fields = ("broadcast", "customer", "state", "error", "created_at", "sent_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

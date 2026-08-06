@@ -13,6 +13,7 @@
     "refresh_all_links": "Refresh all links",
     "refresh_link": "Refresh link",
     "request_new_link": "Request a new link",
+    "retry": "Try again",
     "send_links": "Send links",
     "support": "Store support",
     "to_cart": "@:buttons.add2cart"
@@ -42,7 +43,10 @@
   "products": {
     "count": "pc.",
     "currency": "Currency",
+    "empty": "There are no products yet. Come back later.",
+    "error": "Could not load the product list. Check your connection and try again.",
     "list": "List of products",
+    "loading": "Loading the product list...",
     "modal_window": {
       "title": "Buying goods",
       "total_amount": "for the total amount"

@@ -29,7 +29,7 @@ from sales.utils import send_purchases_link
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DAYS = 30
+DEFAULT_DAYS = 7
 
 
 class Command(BaseCommand):
@@ -80,7 +80,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f"{txn.txn_id}: {e}"))
                 continue
 
-            if self.check(txn, operation_to_fields(operation)):
+            if self.reconcile(txn, operation_to_fields(operation)):
                 differing += 1
                 if not self.dry_run:
                     updated += 1
@@ -115,8 +115,13 @@ class Command(BaseCommand):
 
         return list(transactions)
 
-    def check(self, txn: Transaction, fields: dict) -> bool:
-        """Report - and unless this is a dry run, repair - one transaction. True if it differed."""
+    def reconcile(self, txn: Transaction, fields: dict) -> bool:
+        """
+        Report - and unless this is a dry run, repair - one transaction. True if it differed.
+
+        Not `check`: that name belongs to BaseCommand, which calls it with no arguments to run
+        Django's system checks before every command.
+        """
 
         changes = diff_transaction(txn, fields)
         order = txn.order

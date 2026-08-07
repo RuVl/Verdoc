@@ -856,11 +856,16 @@ class SyncTransactionsTests(OrderItemFactoryMixin, TestCase):
         }
 
     def sync(self, operation: dict | None = None, *, answers: list | None = None, **flags):
-        """Run the command against a canned Plisio, with `answers` for the multi-call cases."""
+        """
+        Run the command against a canned Plisio, with `answers` for the multi-call cases.
+
+        `skip_checks=False` on purpose: call_command skips them by default, and that is how a method
+        shadowing one of BaseCommand's own (`check`) went unnoticed until the first real run.
+        """
 
         responses = answers or [FakeResponse({"status": "success", "data": operation or self.operation()})]
         with patch("sales.plisio.requests.get", side_effect=responses) as get:
-            call_command("sync_transactions", **flags)
+            call_command("sync_transactions", skip_checks=False, **flags)
         return get
 
     def test_dry_run_reports_but_writes_nothing(self):

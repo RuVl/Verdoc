@@ -2,7 +2,6 @@ import hashlib
 import hmac
 import json
 import logging
-from decimal import Decimal
 
 import requests
 from django import views
@@ -12,14 +11,13 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import FileResponse, HttpResponseNotFound
-from djmoney.money import Money
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from customer.models import Customer
 from sales.models import Allocation, Order, PaymentCallbackLog, Transaction
-from sales.plisio import apply_order_status
+from sales.plisio import apply_order_status, callback_to_fields
 from sales.serializers import (
     AllocationSerializer,
     OrderSerializer,
@@ -188,42 +186,22 @@ class PlisioCallbackView(APIView):
     def upsert_transaction(self, order: Order, data: dict) -> Transaction:
         """Store the invoice this callback is about. The order itself moves in `apply_order_status`."""
 
-        update_data = {
-            "order": order,
-            "status": data.get("status"),
-            "amount": Decimal(data.get("amount")),
-            "currency": data.get("currency"),
-            "merchant": data.get("merchant"),
-            "merchant_id": data.get("merchant_id"),
-            "comment": data.get("comment"),
-        }
-
-        if data.get("source_currency") and data.get("source_amount"):
-            update_data["source_price"] = Money(
-                currency=data.get("source_currency"),
-                amount=Decimal(data.get("source_amount")),
-            )
-
-        if data.get("source_rate"):
-            update_data["source_rate"] = Decimal(data["source_rate"])
-
-        if data.get("confirmations"):
-            update_data["confirmations"] = int(data["confirmations"])
-
-        if data.get("invoice_commission"):
-            update_data["commission"] = Decimal(data["invoice_commission"])
-
-        if data.get("pending_amount"):
-            update_data["pending_amount"] = Decimal(data["pending_amount"])
-
-        if data.get("tx_urls"):
-            update_data["tx_urls"] = data["tx_urls"]
+        update_data = {"order": order, **callback_to_fields(data)}
 
         # Keyed by txn_id, not by order: switching cryptocurrency mints a new invoice for the same
         # order, and the old schema overwrote the previous one. A payload without an invoice id is
         # not expected - it gets a stable synthetic one instead of a second nameless row.
         txn_id = data.get("txn_id") or f"unknown-{order.id}"
         txn, _ = Transaction.objects.update_or_create(txn_id=txn_id, defaults=update_data)
+
+        if txn.status == Transaction.TransactionStatus.MISMATCH and txn.pending_amount:
+            # Plisio says "mismatch" whichever way the sum went, and we hand the files over either
+            # way - refusing here would strand a customer whose payment Plisio accepted. A missing
+            # amount is a sale to look at by hand, so it does not get to pass quietly.
+            logger.warning(
+                f"Order {order.id}: invoice {txn.txn_id} is short {txn.pending_amount} {txn.currency} "
+                f"and was still delivered"
+            )
 
         return txn
 

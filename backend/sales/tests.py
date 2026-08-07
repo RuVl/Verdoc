@@ -4,6 +4,7 @@ import json
 import tempfile
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -331,6 +332,46 @@ class PlisioCallbackTests(OrderItemFactoryMixin, TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(PaymentCallbackLog.objects.filter(order__isnull=True).count(), 1)
+
+    def test_the_invoice_keeps_the_money_fields_plisio_sent(self):
+        """`commission` is in the invoice's coin and `source_rate` is crypto per dollar - see statistics."""
+
+        self.post_callback(
+            source_currency="USD",
+            source_amount="10.00",
+            source_rate="0.00005",
+            invoice_commission="0.0000025",
+            confirmations="3",
+        )
+
+        txn = Transaction.objects.get(txn_id="txn-1")
+        self.assertEqual(txn.source_price.amount, Decimal("10.00"))
+        self.assertEqual(str(txn.source_price.currency), "USD")
+        self.assertEqual(txn.source_rate, Decimal("0.00005"))
+        self.assertEqual(txn.commission, Decimal("0.0000025"))
+        self.assertEqual(txn.confirmations, 3)
+
+    def test_a_later_callback_does_not_blank_what_an_earlier_one_filled(self):
+        """Plisio repeats an invoice, and the repeat is not always the richer message."""
+
+        self.post_callback(invoice_commission="0.0000025", source_rate="0.00005")
+        self.post_callback()
+
+        txn = Transaction.objects.get(txn_id="txn-1")
+        self.assertEqual(txn.commission, Decimal("0.0000025"))
+        self.assertEqual(txn.source_rate, Decimal("0.00005"))
+
+    def test_a_short_payment_is_delivered_but_says_so_in_the_log(self):
+        """`mismatch` is Plisio's word either way; we hand the files over and log the shortfall."""
+
+        with self.assertLogs("sales.views", level="WARNING") as logged:
+            response = self.post_callback(status="mismatch", pending_amount="0.0001")
+
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.OrderStatus.OVERPAID)
+        self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
+        self.assertIn("is short 0.0001 BTC", "\n".join(logged.output))
 
 
 class ServedFilesMixin(OrderItemFactoryMixin):
@@ -805,17 +846,6 @@ class ExpireCommandTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(other.status, Order.OrderStatus.PENDING)
         # Only the healthy order gave its unit back; the broken one still holds its own.
         self.assertEqual(product.available_count(), 3)
-
-
-class FakeResponse:
-    """Just enough of requests' answer for `sales.plisio` to unwrap it."""
-
-    def __init__(self, payload: dict, status_code: int = 200):
-        self.payload = payload
-        self.status_code = status_code
-
-    def json(self) -> dict:
-        return self.payload
 
 
 class StockItemDeletionTests(OrderItemFactoryMixin, TestCase):

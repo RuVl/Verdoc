@@ -5,6 +5,7 @@ import tempfile
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1139,3 +1140,35 @@ class MailOutageTests(OrderItemFactoryMixin, TestCase):
             response = self.client.post(reverse("send-links"), {"email": self.customer.email}, format="json")
 
         self.assertEqual(response.status_code, 502)
+
+
+class PruneCallbackLogsTests(OrderItemFactoryMixin, TestCase):
+    """The raw payloads are for debugging a sale, not for keeping forever."""
+
+    def make_log(self, age_days: int) -> PaymentCallbackLog:
+        log = PaymentCallbackLog.objects.create(order=self.order, txn_id=f"txn-{age_days}", payload={})
+        # auto_now_add wins over anything passed to create(), so the date is set afterwards.
+        PaymentCallbackLog.objects.filter(pk=log.pk).update(received_at=timezone.now() - timedelta(days=age_days))
+        return log
+
+    def test_only_the_logs_past_the_window_go(self):
+        self.make_log(400)
+        self.make_log(10)
+
+        call_command("prune_callback_logs", days=180, skip_checks=False)
+
+        self.assertEqual([log.txn_id for log in PaymentCallbackLog.objects.all()], ["txn-10"])
+
+    def test_a_dry_run_deletes_nothing(self):
+        self.make_log(400)
+
+        call_command("prune_callback_logs", days=180, dry_run=True, skip_checks=False)
+
+        self.assertEqual(PaymentCallbackLog.objects.count(), 1)
+
+    def test_it_refuses_to_empty_the_table(self):
+        self.make_log(0)
+
+        call_command("prune_callback_logs", days=0, stderr=StringIO(), skip_checks=False)
+
+        self.assertEqual(PaymentCallbackLog.objects.count(), 1)

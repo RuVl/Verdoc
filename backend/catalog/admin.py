@@ -56,8 +56,9 @@ class StockItemInlineFormSet(BaseInlineFormSet):
 class StockItemInline(admin.TabularInline):
     model = StockItem
     formset = StockItemInlineFormSet
-    fields = ["file", "state"]
-    readonly_fields = ["state"]
+    fields = ["file", "state", "created_at"]
+    # created_at is editable=False, so it can only appear here as a read-only column.
+    readonly_fields = ["state", "created_at"]
     extra = 0
     show_change_link = True
 
@@ -148,10 +149,12 @@ class AvailabilityFilter(admin.SimpleListFilter):
 
 @admin.register(StockItem)
 class StockItemAdmin(admin.ModelAdmin):
-    list_display = ["id", "product", "file", "state"]
-    list_filter = [AvailabilityFilter, "product__country"]
+    list_display = ["id", "product", "file", "state", "created_at"]
+    list_filter = [AvailabilityFilter, "product__country", "created_at"]
     search_fields = ["product__name", "file"]
     list_select_related = ["product"]
+    date_hierarchy = "created_at"
+    readonly_fields = ["created_at"]
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related(active_allocations())

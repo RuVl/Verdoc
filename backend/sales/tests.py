@@ -4,6 +4,7 @@ import json
 import tempfile
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -805,6 +806,149 @@ class ExpireCommandTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(other.status, Order.OrderStatus.PENDING)
         # Only the healthy order gave its unit back; the broken one still holds its own.
         self.assertEqual(product.available_count(), 3)
+
+
+class FakeResponse:
+    """Just enough of requests' answer for `sales.plisio` to unwrap it."""
+
+    def __init__(self, payload: dict, status_code: int = 200):
+        self.payload = payload
+        self.status_code = status_code
+
+    def json(self) -> dict:
+        return self.payload
+
+
+@override_settings(PLISIO_SECRET_KEY="key", MIRROR_PLISIO_SECRET_KEY="key")
+class SyncTransactionsTests(OrderItemFactoryMixin, TestCase):
+    """
+    The repair path for a callback that never arrived - see sales/plisio.py.
+
+    Both shops share one key here, so `api_keys()` dedupes to a single one and every scenario below
+    makes exactly one API call per invoice.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.product = self.make_product(2)
+        self.item = self.make_item(self.product, quantity=1)
+        self.item.reserve()
+
+        self.txn = Transaction.objects.create(
+            order=self.order,
+            txn_id="txn-1",
+            amount=Decimal("0.0005"),
+            currency="BTC",
+            status="pending",
+            commission=Decimal("0.000005"),
+        )
+
+    @staticmethod
+    def operation(**overrides) -> dict:
+        return {
+            "id": "txn-1",
+            "type": "invoice",
+            "status": "completed",
+            "amount": "0.00050000",
+            "currency": "BTC",
+            "confirmations": 3,
+            **overrides,
+        }
+
+    def sync(self, operation: dict | None = None, *, answers: list | None = None, **flags):
+        """Run the command against a canned Plisio, with `answers` for the multi-call cases."""
+
+        responses = answers or [FakeResponse({"status": "success", "data": operation or self.operation()})]
+        with patch("sales.plisio.requests.get", side_effect=responses) as get:
+            call_command("sync_transactions", **flags)
+        return get
+
+    def test_dry_run_reports_but_writes_nothing(self):
+        self.sync(dry_run=True)
+
+        self.txn.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(self.txn.status, "pending")
+        self.assertEqual(self.order.status, Order.OrderStatus.PENDING)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_lost_callback_is_replayed(self):
+        self.sync()
+
+        self.txn.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(self.txn.status, "completed")
+        self.assertEqual(self.txn.confirmations, 3)
+        self.assertEqual(self.order.status, Order.OrderStatus.PAID)
+        self.assertIsNotNone(self.order.paid_at)
+        self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_what_plisio_does_not_mention_is_kept(self):
+        """The callback carries more than the operation endpoint - a repair must not cost us data."""
+
+        self.sync(self.operation(commission=None))
+
+        self.txn.refresh_from_db()
+        self.assertEqual(self.txn.commission, Decimal("0.000005"))
+
+    def test_equal_amounts_written_differently_are_not_a_difference(self):
+        self.sync(self.operation(status="pending", amount="0.000500000000", confirmations=None))
+
+        self.txn.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(self.txn.amount, Decimal("0.0005"))
+        self.assertEqual(self.order.status, Order.OrderStatus.PENDING)
+
+    def test_a_paid_order_is_never_un_sold(self):
+        """A currency switch leaves a "cancelled duplicate" invoice behind, and that maps to PENDING."""
+
+        self.item.deliver()
+        self.order.status = Order.OrderStatus.PAID
+        self.order.mark_paid()
+        self.order.save(update_fields=["status"])
+
+        self.sync(self.operation(status="cancelled duplicate"))
+
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.OrderStatus.PAID)
+        self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
+
+    def test_skip_orders_touches_the_row_only(self):
+        self.sync(skip_orders=True)
+
+        self.txn.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(self.txn.status, "completed")
+        self.assertEqual(self.order.status, Order.OrderStatus.PENDING)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_an_unreadable_invoice_does_not_stop_the_run(self):
+        error = FakeResponse({"status": "error", "data": {"message": "not found"}}, status_code=404)
+
+        self.sync(answers=lambda *args, **kwargs: error)
+
+        self.txn.refresh_from_db()
+        self.assertEqual(self.txn.status, "pending")
+
+    def test_discover_adopts_an_invoice_we_never_heard_of(self):
+        """No row at all: the webhook never reached us, and the order is still sitting unpaid."""
+
+        unknown = self.operation(id="txn-unknown", params={"order_number": str(self.order.id)})
+        answers = [
+            FakeResponse({"status": "success", "data": self.operation(status="pending")}),
+            FakeResponse({"status": "success", "data": {"operations": [unknown], "_meta": {"pageCount": 1}}}),
+        ]
+
+        self.sync(answers=answers, discover=True)
+
+        adopted = Transaction.objects.get(txn_id="txn-unknown")
+        self.order.refresh_from_db()
+        self.assertEqual(adopted.order_id, self.order.id)
+        self.assertEqual(adopted.status, "completed")
+        self.assertEqual(self.order.status, Order.OrderStatus.PAID)
+        self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
 
 
 class StockItemDeletionTests(OrderItemFactoryMixin, TestCase):

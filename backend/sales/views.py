@@ -19,6 +19,7 @@ from rest_framework.views import APIView
 
 from customer.models import Customer
 from sales.models import Allocation, Order, PaymentCallbackLog, Transaction
+from sales.plisio import apply_order_status
 from sales.serializers import (
     AllocationSerializer,
     OrderSerializer,
@@ -28,19 +29,6 @@ from sales.serializers import (
 from sales.utils import send_purchases_link
 
 logger = logging.getLogger(__name__)
-
-# Plisio invoice status -> our order status.
-STATUS_MAP = {
-    "new": Order.OrderStatus.PENDING,
-    "pending": Order.OrderStatus.PENDING,
-    "pending internal": Order.OrderStatus.PENDING,
-    "completed": Order.OrderStatus.PAID,
-    "expired": Order.OrderStatus.EXPIRED,
-    "mismatch": Order.OrderStatus.OVERPAID,
-    "error": Order.OrderStatus.ERROR,
-    "cancelled": Order.OrderStatus.CANCELLED,
-    "cancelled duplicate": Order.OrderStatus.PENDING,  # A customer has switched to another cryptocurrency
-}
 
 # Our language codes -> the locales Plisio names its checkout in. Anything else falls back to en_US.
 PLISIO_LANGUAGES = {
@@ -170,13 +158,7 @@ class PlisioCallbackView(APIView):
         try:
             with transaction.atomic():
                 self.upsert_transaction(order, data)
-
-                match order.status:
-                    case Order.OrderStatus.PAID | Order.OrderStatus.OVERPAID:
-                        first_payment = order.mark_paid()
-                        allocations = order.deliver()
-                    case Order.OrderStatus.EXPIRED | Order.OrderStatus.CANCELLED:
-                        order.release()
+                first_payment, allocations = apply_order_status(order, data.get("status"))
         except ValueError as e:
             # Only one thing raises here now: the order is paid but stock ran out while the payment
             # was pending. Everything rolls back, so Plisio can retry once stock is refilled.
@@ -204,9 +186,7 @@ class PlisioCallbackView(APIView):
         )
 
     def upsert_transaction(self, order: Order, data: dict) -> Transaction:
-        """Store the invoice this callback is about and move the order to the matching status."""
-
-        order.status = STATUS_MAP.get(data.get("status"), Order.OrderStatus.ERROR)
+        """Store the invoice this callback is about. The order itself moves in `apply_order_status`."""
 
         update_data = {
             "order": order,
@@ -239,7 +219,6 @@ class PlisioCallbackView(APIView):
         if data.get("tx_urls"):
             update_data["tx_urls"] = data["tx_urls"]
 
-        order.save(update_fields=["status", "updated_at"])
         # Keyed by txn_id, not by order: switching cryptocurrency mints a new invoice for the same
         # order, and the old schema overwrote the previous one. A payload without an invoice id is
         # not expected - it gets a stable synthetic one instead of a second nameless row.

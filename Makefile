@@ -237,6 +237,10 @@ expire: ## Снять резерв с просроченных заказов
 broadcast: ## Разослать письма из очереди (QUEUED); флаги: c="--id N --dry-run --test"
 	$(MANAGE) broadcast $(c)
 
+.PHONY: sync-transactions
+sync-transactions: ## Сверить транзакции с API Plisio; флаги: c="--dry-run --discover --days 7 --order N"
+	$(MANAGE) sync_transactions $(c)
+
 # --- База данных: дамп / импорт ---------------------------------------------
 
 .PHONY: db-dump

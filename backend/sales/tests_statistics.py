@@ -250,17 +250,34 @@ class StockForecastTests(StatisticsFactoryMixin, TestCase):
         self.assertEqual(row["available"], 0)
         self.assertEqual(row["days_left"], Decimal(0))
 
-    def test_sold_out_sorts_above_stock_that_is_simply_not_selling(self):
-        # Neither product sells, so neither has a runway - but one of them has nothing left, and
-        # that is the row that must not be pushed off the end of a cut table.
+    def test_a_sold_out_seller_outranks_everything_that_still_has_a_runway(self):
+        now = timezone.now()
+        stocked = Product.objects.create(name="Still has some", country=self.country, price=10)
+        self.make_stock(10, product=stocked)
+        self.make_sale(now - timedelta(days=1), product=stocked)
+        # Sold its only unit and is still selling: every day it stays empty is a sale not made.
+        self.make_stock(1)
+        item = self.make_sale(now - timedelta(days=1)).items.first()
+        item.reserve()
+        item.deliver()
+
+        rows = statistics.stock_forecast(now)
+
+        self.assertEqual(rows[0]["product"], self.product.name)
+        self.assertEqual(rows[0]["days_left"], Decimal(0))
+        self.assertEqual(rows[1]["product"], stocked.name)
+
+    def test_nothing_selling_sinks_below_the_runways_and_empty_shelves_go_last(self):
+        # Neither sells, so neither has a runway to compare. The one with stock is money sitting
+        # still and worth a look; the empty one is nothing to lose and nothing to buy.
         self.make_stock(5)
-        empty = Product.objects.create(name="Sold out", country=self.country, price=10)
+        empty = Product.objects.create(name="Sold out and dead", country=self.country, price=10)
 
         rows = statistics.stock_forecast(timezone.now())
 
-        self.assertEqual(rows[0]["product"], empty.name)
-        self.assertEqual(rows[0]["available"], 0)
-        self.assertIsNone(rows[0]["days_left"])
+        self.assertEqual([row["product"] for row in rows], [self.product.name, empty.name])
+        self.assertIsNone(rows[-1]["days_left"])
+        self.assertEqual(rows[-1]["available"], 0)
 
     def test_the_age_is_of_the_oldest_unit_still_on_the_shelf(self):
         self.make_stock(3)

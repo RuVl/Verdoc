@@ -246,12 +246,18 @@ def stock_forecast(now: datetime) -> list[dict]:
             }
         )
 
-    # Sold out comes first even when the product is not selling - "nothing left to sell" is the
-    # one row that must never be pushed off the page by the sorting. Then whatever runs out
-    # soonest, and last the tail that has stock and no sales at all.
+    # Sorted by what it costs to ignore the row. Anything that still sells comes first, soonest
+    # to run out at the top - a sold-out seller is a zero and heads the list. Products that have
+    # not sold in the window have no runway to compare, so they follow, most stock first: that is
+    # money sitting still. A product that is both out of stock and not selling is last - there is
+    # nothing to lose and nothing to buy.
     return sorted(
         rows,
-        key=lambda row: (row["available"] > 0, row["days_left"] is None, row["days_left"] or 0, row["available"]),
+        key=lambda row: (
+            row["days_left"] is None,
+            row["days_left"] if row["days_left"] is not None else 0,
+            -row["available"],
+        ),
     )
 
 

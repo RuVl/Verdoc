@@ -11,9 +11,6 @@ class VerdocAdminSite(admin.AdminSite):
     `@admin.register` in the project keeps writing to this instance.
     """
 
-    site_header = "Verdoc"
-    site_title = "Verdoc"
-
     def get_urls(self):
         # Imported here, not at module level: this module is loaded while the app registry is
         # still being populated, and the views pull in models.

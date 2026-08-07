@@ -30,8 +30,6 @@
   .stats-chart { height: 320px; margin-bottom: 25px; }
   .stats-empty { padding: 30px; text-align: center; color: var(--body-quiet-color);
     border: 1px dashed var(--border-color); border-radius: 6px; }
-  .stock-paginator { display: flex; align-items: center; gap: 12px; margin-top: 12px;
-    color: var(--body-quiet-color); font-size: 12px; }
   .num { text-align: right; white-space: nowrap; }
   .low { color: var(--error-fg); font-weight: 600; }
 </style>
@@ -117,17 +115,25 @@
         </tbody>
       </table>
     </div>
-    {% if stock_page.paginator.num_pages > 1 %}
-      <p class="stock-paginator">
-        {% if stock_prev_url %}<a href="{{ stock_prev_url }}" class="button">&lsaquo; Previous</a>{% endif %}
-        <span>{{ stock_page.start_index }}&ndash;{{ stock_page.end_index }}
-          of {{ stock_page.paginator.count }} products, closest to running out first</span>
-        {% if stock_next_url %}<a href="{{ stock_next_url }}" class="button">Next &rsaquo;</a>{% endif %}
-      </p>
-    {% endif %}
+    {# Same shape as admin/pagination.html, so the admin's own .paginator styles apply as they are. #}
+    <p class="paginator">
+      {% if stock_page.paginator.num_pages > 1 %}
+        {% for item in stock_page_numbers %}
+          {% if item.number == stock_ellipsis %}
+            {{ stock_ellipsis }}
+          {% elif item.number == stock_page.number %}
+            <span class="this-page">{{ item.number }}</span>
+          {% else %}
+            <a href="{{ item.url }}"{% if item.number == stock_page.paginator.num_pages %} class="end"{% endif %}>{{ item.number }}</a>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      {{ stock_page.paginator.count }} product{{ stock_page.paginator.count|pluralize }}, closest to running out first
+    </p>
     <p class="hint">
-      {{ stock_age.available }} unit{{ stock_age.available|pluralize }} free
-      {% if stock_age.oldest_days %}, oldest sitting {{ stock_age.oldest_days }} day{{ stock_age.oldest_days|pluralize }}{% endif %}.
+      {# The period is glued to {% endif %} on purpose: a line break here renders as a space before it. #}
+      {{ stock_age.available }} unit{{ stock_age.available|pluralize }} free{% if stock_age.oldest_days %},
+        oldest sitting {{ stock_age.oldest_days }} day{{ stock_age.oldest_days|pluralize }}{% endif %}.
       Units that predate the counter carry the date it was deployed, so that age is a floor.
     </p>
   </div>
@@ -228,29 +234,65 @@
           // Follow the admin's own palette, so the theme toggle carries the chart with it.
           Chart.defaults.color = css.getPropertyValue('--body-fg');
           Chart.defaults.borderColor = css.getPropertyValue('--hairline-color');
-          var accent = css.getPropertyValue('--primary').trim();
+          // --link-fg over --primary: the dark theme's primary is a near-background navy that
+          // leaves the line and its points barely visible.
+          var accent = (css.getPropertyValue('--link-fg') || css.getPropertyValue('--primary')).trim();
+
+          // The text colour, not an accent: it is the one value that stays readable in both
+          // themes, and a dashed line in it reads as secondary next to the coloured one.
+          var trendColor = (css.getPropertyValue('--body-fg') || '#666').trim();
+          var pageBg = (css.getPropertyValue('--body-bg') || '#fff').trim();
 
           new Chart(document.getElementById('revenue-chart'), {
               type: 'line',
               data: {
                   labels: data.labels,
-                  datasets: [{
-                      label: 'Gross, USD',
-                      data: data.values,
-                      borderColor: accent,
-                      backgroundColor: accent,
-                      fill: false,
-                      tension: 0.2,
-                  }],
+                  datasets: [
+                      {
+                          label: 'Gross, USD',
+                          data: data.values,
+                          borderColor: accent,
+                          backgroundColor: accent,
+                          fill: false,
+                          tension: 0.2,
+                          borderWidth: 2,
+                          // A dead day is a dot on the zero line and nothing else - drawing it
+                          // just speckles the axis. The line still passes through the day.
+                          pointRadius: function (ctx) { return ctx.raw > 0 ? 3.5 : 0; },
+                          pointHoverRadius: 6,
+                          pointBorderColor: pageBg,
+                          pointBorderWidth: 1.5,
+                      },
+                      {
+                          label: '{{ trend_window }}-day average, USD',
+                          data: data.trend,
+                          borderColor: trendColor,
+                          backgroundColor: trendColor,
+                          fill: false,
+                          tension: 0.3,
+                          borderWidth: 2,
+                          borderDash: [6, 4],
+                          pointRadius: 0,
+                          pointHoverRadius: 0,
+                          // The first days of the window carry null; leave the gap rather than
+                          // joining the line across days it has no average for.
+                          spanGaps: false,
+                      },
+                  ],
               },
               options: {
                   responsive: true,
                   maintainAspectRatio: false,
                   // Whole-column hit testing: a year of points is far too small to click exactly.
                   interaction: {mode: 'index', intersect: false},
-                  scales: {y: {beginAtZero: true, ticks: {callback: function (v) { return '$' + v; }}}},
+                  scales: {
+                      y: {beginAtZero: true, ticks: {callback: function (v) { return '$' + v; }}},
+                      // A year's worth of dates cannot all be written out; a dozen upright
+                      // labels are readable where ninety slanted ones are a smear.
+                      x: {grid: {display: false}, ticks: {maxTicksLimit: 12, maxRotation: 0, autoSkip: true}},
+                  },
                   plugins: {
-                      legend: {display: false},
+                      legend: {display: true, labels: {usePointStyle: true, boxHeight: 6}},
                       tooltip: {callbacks: {footer: function () { return 'Click to see the orders'; }}},
                   },
                   // A point opens the orders paid that day, filtered on the admin's own changelist.

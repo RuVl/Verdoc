@@ -34,6 +34,9 @@ RESERVATION_WINDOW = timedelta(hours=1)
 # "will it last" is a question about now, not about the range being browsed.
 SALES_RATE_DAYS = 30
 
+# Days behind each point that the trend line averages over.
+TREND_WINDOW = 7
+
 MONEY = DecimalField(max_digits=20, decimal_places=2)
 
 
@@ -146,6 +149,23 @@ def revenue_by_day(period: Period) -> list[dict]:
     return days
 
 
+def moving_average(rows: list[dict], window: int = TREND_WINDOW) -> list[Decimal | None]:
+    """
+    A trailing average over `window` days, aligned to `rows`.
+
+    Daily revenue on a shop this size is mostly noise - a day with two orders next to a day with
+    none says nothing about the trend. The first days carry None rather than an average of a
+    shorter window, which would start the line at whatever the first day happened to be.
+    """
+
+    values = [row["revenue"] for row in rows]
+
+    return [
+        (sum(values[index + 1 - window : index + 1]) / window) if index + 1 >= window else None
+        for index in range(len(values))
+    ]
+
+
 def money_totals(period: Period) -> MoneyTotals:
     """Gross from the snapshots, what Plisio kept, and how many orders it took."""
 
@@ -165,9 +185,9 @@ def money_totals(period: Period) -> MoneyTotals:
     return MoneyTotals(gross=gross, commission=commission, orders=paid_orders(period).count())
 
 
-def top_products(period: Period, limit: int = 10) -> list[dict]:
+def top_products(period: Period, limit: int | None = 10) -> list[dict]:
     """
-    Best sellers by revenue.
+    Best sellers by revenue, or every product sold when `limit` is None (the CSV takes that one).
 
     Grouped by the snapshot `product_name`, not by the live product: renaming a product in the
     catalogue must not silently merge or split what was sold under the old name.
@@ -286,11 +306,16 @@ def time_to_pay(period: Period) -> dict:
     )
 
     return {
-        "median": stats["median"],
-        "average": stats["average"],
+        # PERCENTILE_CONT interpolates, so both come back with microseconds nobody can act on.
+        "median": _to_seconds(stats["median"]),
+        "average": _to_seconds(stats["average"]),
         "late": stats["late"],
         "late_share": Decimal(stats["late"]) / Decimal(stats["total"]) * 100 if stats["total"] else Decimal("0"),
     }
+
+
+def _to_seconds(value: timedelta | None) -> timedelta | None:
+    return timedelta(seconds=round(value.total_seconds())) if value is not None else None
 
 
 def repeat_customers(period: Period, limit: int = 10) -> dict:

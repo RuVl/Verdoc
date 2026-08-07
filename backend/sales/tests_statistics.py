@@ -132,6 +132,17 @@ class RevenueTests(StatisticsFactoryMixin, TestCase):
         self.assertEqual(days[0]["revenue"], Decimal("0"))
         self.assertEqual(days[2]["revenue"], Decimal("10"))
 
+    def test_the_trend_line_starts_only_once_the_window_is_full(self):
+        # One 70-dollar day, then nothing: the trend has to spread it over the window, not spike.
+        self.make_sale(self.start, price="70")
+        rows = statistics.revenue_by_day(self.period)
+
+        trend = statistics.moving_average(rows, window=7)
+
+        self.assertEqual(trend[:6], [None] * 6)
+        self.assertEqual(trend[6], Decimal(10))
+        self.assertEqual(trend[7], Decimal(0))
+
     def test_an_empty_period_has_no_averages_to_divide(self):
         totals = statistics.money_totals(self.period)
 
@@ -288,6 +299,18 @@ class TimeToPayTests(StatisticsFactoryMixin, TestCase):
         self.assertEqual(stats["late"], 1)
         self.assertEqual(stats["late_share"], Decimal(50))
 
+    def test_the_median_is_rounded_to_whole_seconds(self):
+        # PERCENTILE_CONT interpolates between the two middle orders, and half a microsecond of
+        # "time to pay" is noise on the page.
+        paid_at = self.start + timedelta(days=1)
+        for microseconds in (1, 2, 3, 500001):
+            self.make_sale(paid_at, created_at=paid_at - timedelta(minutes=5, microseconds=microseconds))
+
+        stats = statistics.time_to_pay(self.period)
+
+        self.assertEqual(stats["median"].microseconds, 0)
+        self.assertEqual(stats["average"].microseconds, 0)
+
     def test_no_orders_means_no_median_and_no_division(self):
         stats = statistics.time_to_pay(self.period)
 
@@ -407,9 +430,10 @@ class StockPaginationTests(StaffClientMixin, TestCase):
     def test_paging_keeps_the_period(self):
         response = self.client.get(self.url, {"preset": "7"})
 
-        self.assertIn("preset=7", response.context["stock_next_url"])
-        self.assertIn("stock_page=2", response.context["stock_next_url"])
-        self.assertEqual(response.context["stock_prev_url"], "")
+        second = next(item for item in response.context["stock_page_numbers"] if item["number"] == 2)
+
+        self.assertIn("preset=7", second["url"])
+        self.assertIn("stock_page=2", second["url"])
 
 
 class StatisticsPageTests(TestCase):
@@ -478,3 +502,26 @@ class StatisticsPageTests(TestCase):
         self.assertTrue(body.startswith("﻿"), "Excel needs the BOM to read UTF-8")
         self.assertIn("Revenue by day (UTC)", body)
         self.assertIn("plisio_commission_usd", body)
+
+
+class CsvCoverageTests(StaffClientMixin, TestCase):
+    """The page is cut down to what fits a screen; the export is not."""
+
+    def test_every_product_sold_is_in_the_export_not_just_the_top_ten(self):
+        for i in range(12):
+            product = Product.objects.create(name=f"Product {i}", country=self.country, price=10)
+            self.make_sale(timezone.now() - timedelta(days=1), product=product, price=str(i + 1))
+
+        body = self.client.get(reverse("admin:stats-export")).content.decode("utf-8")
+
+        for i in range(12):
+            self.assertIn(f"Product {i}", body)
+
+    def test_the_export_carries_the_whole_stock_forecast(self):
+        self.make_stock(3, product=Product.objects.create(name="Never sold", country=self.country, price=10))
+
+        body = self.client.get(reverse("admin:stats-export")).content.decode("utf-8")
+
+        self.assertIn("Stock right now", body)
+        # Nothing selling has no runway, and the cell is left empty rather than reading as zero.
+        self.assertIn("Never sold,Testland,3,0,\r\n", body)

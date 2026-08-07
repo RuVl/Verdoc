@@ -92,11 +92,15 @@ def statistics_view(request):
     period = parse_period(request)
     context = _collect(period)
 
+    trend = statistics.moving_average(context["revenue"])
     context["chart"] = {
         "labels": [row["day"].isoformat() for row in context["revenue"]],
         "values": [float(row["revenue"]) for row in context["revenue"]],
+        # None keeps the first days of the window out of the line instead of flattening it.
+        "trend": [float(value) if value is not None else None for value in trend],
         "links": [_orders_of(row["day"]) for row in context["revenue"]],
     }
+    context["trend_window"] = statistics.TREND_WINDOW
     context["has_sales"] = context["totals"].orders > 0
     context["query"] = request.GET.urlencode()
 
@@ -115,14 +119,17 @@ def _paginate_stock(request, rows: list[dict]) -> dict:
     querystring is handled here: a bookmarked URL shows a page, never an error.
     """
 
-    page = Paginator(rows, STOCK_PER_PAGE).get_page(request.GET.get("stock_page"))
+    paginator = Paginator(rows, STOCK_PER_PAGE)
+    page = paginator.get_page(request.GET.get("stock_page"))
 
-    return {
-        "stock_page": page,
-        # Both keep the period, so paging does not silently reset what the page is showing.
-        "stock_prev_url": _with_param(request, stock_page=page.previous_page_number()) if page.has_previous() else "",
-        "stock_next_url": _with_param(request, stock_page=page.next_page_number()) if page.has_next() else "",
-    }
+    # The same elided range the admin's own changelist paginator is built from, so the markup
+    # below it can reuse the admin's .paginator styles and behave the way a changelist does.
+    numbers = [
+        {"number": number, "url": "" if number == paginator.ELLIPSIS else _with_param(request, stock_page=number)}
+        for number in paginator.get_elided_page_range(page.number, on_each_side=2, on_ends=1)
+    ]
+
+    return {"stock_page": page, "stock_page_numbers": numbers, "stock_ellipsis": paginator.ELLIPSIS}
 
 
 def _orders_of(day: date) -> str:
@@ -152,10 +159,17 @@ def _with_param(request, **params) -> str:
 
 
 def statistics_csv_view(request):
-    """The same period, as two blocks in one file: revenue by day, then sales by product."""
+    """
+    The same period as the page, in four blocks.
+
+    The page shows the top ten and one page of stock because a screen has to be readable; the
+    export is where the whole catalogue goes, because that is what a spreadsheet is for.
+    """
 
     period = parse_period(request)
-    data = _collect(period)
+    revenue = statistics.revenue_by_day(period)
+    trend = statistics.moving_average(revenue)
+    totals = statistics.money_totals(period)
 
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="verdoc-stats-{period.start.date()}-{period.last_day}.csv"'
@@ -164,19 +178,27 @@ def statistics_csv_view(request):
 
     writer = csv.writer(response)
     writer.writerow(["Revenue by day (UTC)"])
-    writer.writerow(["date", "gross_usd"])
-    for row in data["revenue"]:
-        writer.writerow([row["day"].isoformat(), _money(row["revenue"])])
+    writer.writerow(["date", "gross_usd", f"average_{statistics.TREND_WINDOW}d_usd"])
+    for row, average in zip(revenue, trend, strict=True):
+        writer.writerow([row["day"].isoformat(), _money(row["revenue"]), _money(average) if average else ""])
 
     writer.writerow([])
-    writer.writerow(["Sales by product"])
+    writer.writerow(["Sales by product - every product sold in the period"])
     writer.writerow(["product", "units", "gross_usd"])
-    for row in data["top_products"]:
+    for row in statistics.top_products(period, limit=None):
         writer.writerow([row["product_name"], row["units"], _money(row["revenue"])])
 
     writer.writerow([])
+    writer.writerow([f"Stock right now - every product, at the last {statistics.SALES_RATE_DAYS} days of sales"])
+    writer.writerow(["product", "country", "available", f"sold_{statistics.SALES_RATE_DAYS}d", "days_left"])
+    for row in statistics.stock_forecast(timezone.now()):
+        # An empty cell, not a zero: nothing selling means no runway to report, and a 0 there
+        # would read as "out tomorrow" - the opposite.
+        days_left = f"{row['days_left']:.0f}" if row["days_left"] is not None else ""
+        writer.writerow([row["product"], row["country"], row["available"], row["sold"], days_left])
+
+    writer.writerow([])
     writer.writerow(["gross_usd", "plisio_commission_usd", "net_usd", "paid_orders"])
-    totals = data["totals"]
     writer.writerow([_money(totals.gross), _money(totals.commission), _money(totals.net), totals.orders])
 
     return response

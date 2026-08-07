@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from django.db.models import Aggregate, Avg, Count, DecimalField, DurationField, F, Q, Sum
+from django.db.models import Aggregate, Avg, Count, DecimalField, DurationField, F, Min, Q, Sum
 from django.db.models.functions import Coalesce, TruncDay
 
 from catalog.models import Product, StockItem
@@ -93,6 +93,17 @@ class Funnel:
     @property
     def conversion(self) -> Decimal:
         return Decimal(self.paid) / Decimal(self.created) * 100 if self.created else Decimal("0")
+
+
+def first_sale_at() -> datetime | None:
+    """
+    When the first order was ever paid, or None on an empty shop.
+
+    This is where "all time" starts: an arbitrary earlier date would draw months of flat zero
+    before the shop existed and squash every real day into the right-hand edge of the chart.
+    """
+
+    return Order.objects.filter(paid_at__isnull=False).aggregate(first=Min("paid_at"))["first"]
 
 
 def paid_orders(period: Period):
@@ -215,8 +226,13 @@ def stock_forecast(now: datetime) -> list[dict]:
             }
         )
 
-    # Whatever is closest to running out goes first; the never-selling tail sinks to the bottom.
-    return sorted(rows, key=lambda row: (row["days_left"] is None, row["days_left"] or 0, row["available"]))
+    # Sold out comes first even when the product is not selling - "nothing left to sell" is the
+    # one row that must never be pushed off the page by the sorting. Then whatever runs out
+    # soonest, and last the tail that has stock and no sales at all.
+    return sorted(
+        rows,
+        key=lambda row: (row["available"] > 0, row["days_left"] is None, row["days_left"] or 0, row["available"]),
+    )
 
 
 def stock_age(now: datetime) -> dict:

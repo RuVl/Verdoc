@@ -6,24 +6,26 @@ login check, `never_cache` and CSRF protection come from - there is no permissio
 """
 
 import csv
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from django.contrib import admin
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.utils.http import urlencode
 
 from sales import statistics
 from sales.statistics import Period
 
-# Presets offered above the page, as (value, label). "all" spans everything ever recorded.
+# Presets offered above the page, as (value, label). "all" starts at the first sale.
 PRESETS = [("7", "7 days"), ("30", "30 days"), ("90", "90 days"), ("365", "Year"), ("all", "All time")]
 DEFAULT_PRESET = "30"
 
-# Far enough back to predate any order; used as the start of the "all time" range.
-EPOCH = datetime(2020, 1, 1, tzinfo=UTC)
+# Rows of the stock forecast shown before it is cut; `?stock=all` opens the rest.
+STOCK_ROWS = 20
 
 
 def parse_period(request) -> Period:
@@ -45,9 +47,19 @@ def parse_period(request) -> Period:
 
     # The end is tomorrow midnight, so everything paid today is inside the half-open range.
     end_at = _as_utc(timezone.now().date()) + timedelta(days=1)
-    start_at = EPOCH if preset == "all" else end_at - timedelta(days=int(preset))
+    start_at = _all_time_start(end_at) if preset == "all" else end_at - timedelta(days=int(preset))
 
     return Period(start=start_at, end=end_at, preset=preset)
+
+
+def _all_time_start(end_at: datetime) -> datetime:
+    """The day of the first sale. A shop that has never sold anything gets the default window."""
+
+    first = statistics.first_sale_at()
+    if first is None:
+        return end_at - timedelta(days=int(DEFAULT_PRESET))
+
+    return _as_utc(first.astimezone(UTC).date())
 
 
 def _as_utc(day) -> datetime:
@@ -82,11 +94,45 @@ def statistics_view(request):
     context["chart"] = {
         "labels": [row["day"].isoformat() for row in context["revenue"]],
         "values": [float(row["revenue"]) for row in context["revenue"]],
+        "links": [_orders_of(row["day"]) for row in context["revenue"]],
     }
     context["has_sales"] = context["totals"].orders > 0
     context["query"] = request.GET.urlencode()
 
+    # The forecast is sorted by urgency, so a cut tail is only ever products with stock and no
+    # sales - but the whole list stays one click away.
+    show_all = request.GET.get("stock") == "all"
+    context["stock_total"] = len(context["stock"])
+    context["stock_rows"] = context["stock"] if show_all else context["stock"][:STOCK_ROWS]
+    context["stock_all_url"] = _with_param(request, stock="all")
+
     return TemplateResponse(request, "admin/sales/statistics.html", {**admin.site.each_context(request), **context})
+
+
+def _orders_of(day: date) -> str:
+    """
+    The order changelist, filtered down to what was paid on that day.
+
+    The changelist only accepts these two lookups because `paid_at` is in `OrderAdmin.list_filter`.
+    Aware datetimes, in the same shape Django's own date filter builds - a bare date arrives naive
+    and every click would warn about it.
+    """
+
+    start = _as_utc(day)
+    query = urlencode({"paid_at__gte": start, "paid_at__lt": start + timedelta(days=1)})
+
+    return f"{reverse('admin:sales_order_changelist')}?{query}"
+
+
+def _with_param(request, **params) -> str:
+    """The current querystring with a parameter added, so a link keeps the period it was clicked on."""
+
+    query = request.GET.copy()
+    for name, value in params.items():
+        # Assignment, not update(): a QueryDict's update appends to the existing values.
+        query[name] = value
+
+    return f"?{query.urlencode()}"
 
 
 def statistics_csv_view(request):

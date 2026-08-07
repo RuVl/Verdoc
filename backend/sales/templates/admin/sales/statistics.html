@@ -97,8 +97,8 @@
         <thead><tr><th>Product</th><th>Country</th><th class="num">Available</th>
           <th class="num">Sold/{{ sales_rate_days }}d</th><th class="num">Days left</th></tr></thead>
         <tbody>
-        {# Sorted by urgency, so the cut tail is exactly the products that are neither selling nor out. #}
-        {% for row in stock|slice:":20" %}
+        {# Sorted by urgency: sold out first, then closest to running out, then the never-selling tail. #}
+        {% for row in stock_rows %}
           <tr>
             <td>{{ row.product }}</td>
             <td>{{ row.country }}</td>
@@ -116,12 +116,16 @@
       </table>
     </div>
     <p class="hint">
-      {% if stock|length > 20 %}
-        20 of {{ stock|length }} products shown - the rest are in stock and not selling.
+      {% if stock_rows|length < stock_total %}
+        Showing {{ stock_rows|length }} of {{ stock_total }} products, closest to running out first -
+        the rest still have stock and sold nothing in the last {{ sales_rate_days }} days
+        (<a href="{{ stock_all_url }}">show all</a>).
       {% endif %}
       {{ stock_age.available }} unit{{ stock_age.available|pluralize }} free
       {% if stock_age.oldest_days %}, oldest sitting {{ stock_age.oldest_days }} day{{ stock_age.oldest_days|pluralize }}{% endif %}
-      {% if stock_age.undated %} ({{ stock_age.undated }} without an arrival date){% endif %}.
+      {% if stock_age.undated %}
+        ({{ stock_age.undated }} of them arrived before the date was recorded, so they are left out of the age)
+      {% endif %}.
     </p>
   </div>
 
@@ -239,8 +243,20 @@
               options: {
                   responsive: true,
                   maintainAspectRatio: false,
+                  // Whole-column hit testing: a year of points is far too small to click exactly.
+                  interaction: {mode: 'index', intersect: false},
                   scales: {y: {beginAtZero: true, ticks: {callback: function (v) { return '$' + v; }}}},
-                  plugins: {legend: {display: false}},
+                  plugins: {
+                      legend: {display: false},
+                      tooltip: {callbacks: {footer: function () { return 'Click to see the orders'; }}},
+                  },
+                  // A point opens the orders paid that day, filtered on the admin's own changelist.
+                  onClick: function (event, elements) {
+                      if (elements.length) { window.location = data.links[elements[0].index]; }
+                  },
+                  onHover: function (event, elements) {
+                      event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                  },
               },
           });
       })();

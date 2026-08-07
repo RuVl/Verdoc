@@ -239,6 +239,18 @@ class StockForecastTests(StatisticsFactoryMixin, TestCase):
         self.assertEqual(row["available"], 0)
         self.assertEqual(row["days_left"], Decimal(0))
 
+    def test_sold_out_sorts_above_stock_that_is_simply_not_selling(self):
+        # Neither product sells, so neither has a runway - but one of them has nothing left, and
+        # that is the row that must not be pushed off the end of a cut table.
+        self.make_stock(5)
+        empty = Product.objects.create(name="Sold out", country=self.country, price=10)
+
+        rows = statistics.stock_forecast(timezone.now())
+
+        self.assertEqual(rows[0]["product"], empty.name)
+        self.assertEqual(rows[0]["available"], 0)
+        self.assertIsNone(rows[0]["days_left"])
+
     def test_units_from_before_the_field_existed_are_counted_separately(self):
         self.make_stock(3)
         StockItem.objects.filter(pk__in=StockItem.objects.values_list("pk", flat=True)[:2]).update(created_at=None)
@@ -329,6 +341,63 @@ class DownloadRateTests(StatisticsFactoryMixin, TestCase):
 
     def test_nothing_delivered_does_not_divide_by_zero(self):
         self.assertEqual(statistics.download_rate(self.period)["share"], Decimal("0"))
+
+
+class StaffClientMixin(StatisticsFactoryMixin):
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin:stats")
+        self.client.force_login(User.objects.create_user("staff", password="pw", is_staff=True, is_superuser=True))
+
+
+class AllTimePeriodTests(StaffClientMixin, TestCase):
+    def test_all_time_starts_on_the_day_of_the_first_sale(self):
+        first = timezone.now() - timedelta(days=200)
+        self.make_sale(first)
+        self.make_sale(timezone.now() - timedelta(days=1))
+
+        period = self.client.get(self.url, {"preset": "all"}).context["period"]
+
+        self.assertEqual(period.start.date(), first.date())
+
+    def test_all_time_on_a_shop_that_never_sold_anything_is_the_default_window(self):
+        period = self.client.get(self.url, {"preset": "all"}).context["period"]
+
+        self.assertEqual(period.days, 30)
+
+
+class ChartLinkTests(StaffClientMixin, TestCase):
+    def test_a_point_links_to_the_orders_paid_that_day(self):
+        today = self.make_sale(timezone.now())
+        self.make_sale(timezone.now() - timedelta(days=3))
+
+        chart = self.client.get(self.url).context["chart"]
+        # The changelist has to accept the lookups the link carries - it only does because
+        # `paid_at` is in OrderAdmin.list_filter, and this is the test that notices if it goes.
+        changelist = self.client.get(chart["links"][-1])
+
+        self.assertEqual(changelist.status_code, 200)
+        self.assertEqual([order.pk for order in changelist.context["cl"].result_list], [today.pk])
+
+
+class StockCutTests(StaffClientMixin, TestCase):
+    def test_the_forecast_is_cut_but_the_whole_list_is_one_click_away(self):
+        for i in range(25):
+            self.make_stock(1, product=Product.objects.create(name=f"Product {i}", country=self.country, price=10))
+
+        cut = self.client.get(self.url)
+        whole = self.client.get(self.url, {"stock": "all"})
+
+        # 25 products with stock, plus the mixin's own, which has none.
+        self.assertEqual(cut.context["stock_total"], 26)
+        self.assertEqual(len(cut.context["stock_rows"]), 20)
+        self.assertEqual(len(whole.context["stock_rows"]), 26)
+
+    def test_the_show_all_link_keeps_the_period(self):
+        response = self.client.get(self.url, {"preset": "7"})
+
+        self.assertIn("preset=7", response.context["stock_all_url"])
+        self.assertIn("stock=all", response.context["stock_all_url"])
 
 
 class StatisticsPageTests(TestCase):

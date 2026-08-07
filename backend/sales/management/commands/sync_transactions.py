@@ -6,6 +6,7 @@ in PENDING with nothing handed over. `--dry-run` only reports; without it the ro
 the order follows its invoice, and a sale that turns out to be paid is delivered and mailed.
 """
 
+import json
 import logging
 from datetime import timedelta
 
@@ -31,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DAYS = 7
 
+# Orders that are over and hold nothing. Moving between them buys nothing and costs the reason.
+DEAD_STATUSES = (Order.OrderStatus.EXPIRED, Order.OrderStatus.CANCELLED, Order.OrderStatus.ERROR)
+
 
 class Command(BaseCommand):
     help = "Compare transactions with the Plisio API and correct the ones that drifted"
@@ -54,6 +58,7 @@ class Command(BaseCommand):
             action="store_true",
             help="Also walk Plisio's invoice list for invoices we have no row for at all.",
         )
+        parser.add_argument("--raw", action="store_true", help="Print Plisio's answer verbatim, for digging.")
         parser.add_argument("--pages", type=int, default=5, help="Pages of the invoice list to walk (--discover).")
         parser.add_argument("--timeout", type=float, default=30, help="Seconds to wait for one API call.")
 
@@ -62,6 +67,7 @@ class Command(BaseCommand):
             raise CommandError("Neither PLISIO_SECRET_KEY nor MIRROR_PLISIO_SECRET_KEY is set")
 
         self.dry_run = options["dry_run"]
+        self.raw = options["raw"]
         self.skip_orders = options["skip_orders"]
         self.no_email = options["no_email"]
         self.timeout = options["timeout"]
@@ -79,6 +85,12 @@ class Command(BaseCommand):
                 failed.append(txn.txn_id)
                 self.stdout.write(self.style.ERROR(f"{txn.txn_id}: {e}"))
                 continue
+
+            if self.raw:
+                # Verbatim, because the interesting part of an odd status is usually a field we do
+                # not read: what the row says next to it is one line further down anyway.
+                self.stdout.write(f"--- {txn.txn_id} (order {txn.order_id}), we have status={txn.status}")
+                self.stdout.write(json.dumps(operation, indent=2, ensure_ascii=False, default=str))
 
             if self.reconcile(txn, operation_to_fields(operation)):
                 differing += 1
@@ -163,12 +175,24 @@ class Command(BaseCommand):
 
     def may_move(self, order: Order, wanted: str) -> bool:
         """
-        A paid order only ever moves to another paid state.
+        Which order moves this command is allowed to make.
 
-        The callback can afford to follow every status because it is fed one invoice at a time as it
-        happens; here the row may be the cancelled duplicate of a currency switch, and "cancelled
-        duplicate" maps to PENDING - following it would un-sell a delivered order.
+        Two refusals, both for things the callback may do and a sweep over old invoices may not:
+
+        A paid order only ever moves to another paid state. The callback can afford to follow every
+        status because it is fed one invoice at a time as it happens; here the row may be the
+        cancelled duplicate of a currency switch, and "cancelled duplicate" maps to PENDING -
+        following it would un-sell a delivered order.
+
+        And one dead unpaid state does not become another. Plisio stores an unpaid invoice as
+        `cancelled` long after it told us `expired`, which is the same nothing: the units went back
+        the moment the order died, and EXPIRED is the more precise word for why it did.
         """
+
+        if order.status in DEAD_STATUSES and wanted in DEAD_STATUSES:
+            if self.verbosity > 1:
+                self.stdout.write(f"Order {order.id} stays {order.status}: {wanted} is the same dead end")
+            return False
 
         if order.paid_at is None or wanted in Order.PAID_STATUSES:
             return True

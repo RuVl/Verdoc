@@ -919,6 +919,23 @@ class SyncTransactionsTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(self.order.status, Order.OrderStatus.PAID)
         self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
 
+    def test_one_dead_end_is_not_traded_for_another(self):
+        """Plisio stores an unpaid invoice as cancelled long after telling us it expired."""
+
+        self.txn.status = "expired"
+        self.txn.save(update_fields=["status"])
+        self.order.status = Order.OrderStatus.EXPIRED
+        self.order.save(update_fields=["status"])
+        self.item.release()
+
+        self.sync(self.operation(status="cancelled", confirmations=None))
+
+        self.txn.refresh_from_db()
+        self.order.refresh_from_db()
+        # Plisio's own word about the invoice is still worth storing; the order keeps the better one.
+        self.assertEqual(self.txn.status, "cancelled")
+        self.assertEqual(self.order.status, Order.OrderStatus.EXPIRED)
+
     def test_skip_orders_touches_the_row_only(self):
         self.sync(skip_orders=True)
 

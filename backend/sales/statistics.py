@@ -26,9 +26,14 @@ from catalog.models import Product, StockItem
 from customer.models import Customer
 from sales.models import Allocation, Order, OrderItem, Transaction
 
-# How long an order may take to pay before its reservation is gone and the stock had to be
-# handed out again. Mirrors Order.is_expired().
-RESERVATION_WINDOW = timedelta(hours=1)
+# How long an order may take to pay before its reservation is gone and the stock had to be handed
+# out again. Taken from the model, not written out again, so the two cannot drift apart.
+RESERVATION_WINDOW = Order.RESERVATION_FROM_UPDATED
+
+# The invoices somebody paid. `mismatch` is Plisio's word for a sum that did not match the invoice;
+# we hand the files over for it and stamp paid_at, so its revenue is in `gross` - and its
+# commission has to be in the total beside it, or the shop looks more profitable than it is.
+PAID_INVOICES = (Transaction.TransactionStatus.COMPLETED, Transaction.TransactionStatus.MISMATCH)
 
 # The window the stock forecast measures the sales rate over, regardless of the page's period:
 # "will it last" is a question about now, not about the range being browsed.
@@ -171,16 +176,21 @@ def money_totals(period: Period) -> MoneyTotals:
 
     gross = sold_items(period).aggregate(total=Coalesce(_line_total(), Decimal("0"), output_field=MONEY))["total"]
 
-    # commission arrives in the invoice's cryptocurrency and source_rate converts it to USD; both
-    # are optional in the callback, so an invoice missing either is left out rather than counted
-    # as free. Only completed invoices - switching currency mints a second one for the same order.
-    commission = Transaction.objects.filter(
-        order__paid_at__gte=period.start,
-        order__paid_at__lt=period.end,
-        status=Transaction.TransactionStatus.COMPLETED,
-        commission__isnull=False,
-        source_rate__isnull=False,
-    ).aggregate(total=Coalesce(Sum(F("commission") * F("source_rate"), output_field=MONEY), Decimal("0")))["total"]
+    # The commission arrives in the invoice's cryptocurrency, and source_rate says how much of that
+    # currency one dollar buys - so the fiat value is the commission *divided* by the rate. Both
+    # numbers are optional in the callback, and a zero rate would divide by nothing, so an invoice
+    # missing either is left out rather than counted as free.
+    commission = (
+        Transaction.objects.filter(
+            order__paid_at__gte=period.start,
+            order__paid_at__lt=period.end,
+            status__in=PAID_INVOICES,
+            commission__isnull=False,
+            source_rate__isnull=False,
+        )
+        .exclude(source_rate=0)
+        .aggregate(total=Coalesce(Sum(F("commission") / F("source_rate"), output_field=MONEY), Decimal("0")))["total"]
+    )
 
     return MoneyTotals(gross=gross, commission=commission, orders=paid_orders(period).count())
 

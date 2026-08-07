@@ -63,7 +63,7 @@ class StatisticsFactoryMixin:
         )
         return Order.objects.get(pk=order.pk)
 
-    def make_invoice(self, order, commission="0.001", rate="1000", status=Transaction.TransactionStatus.COMPLETED):
+    def make_invoice(self, order, commission="0.001", rate="0.0005", status=Transaction.TransactionStatus.COMPLETED):
         return Transaction.objects.create(
             order=order,
             txn_id=f"txn-{order.pk}-{Transaction.objects.count()}",
@@ -153,36 +153,55 @@ class RevenueTests(StatisticsFactoryMixin, TestCase):
 
 
 class CommissionTests(StatisticsFactoryMixin, TestCase):
-    """Plisio reports the commission in the invoice's cryptocurrency; source_rate makes it USD."""
+    """
+    Plisio reports the commission in the invoice's cryptocurrency; source_rate makes it USD.
+
+    The rate is how much crypto one dollar buys, so the conversion divides. Every case below uses
+    0.002 of a coin at 0.0005 per dollar, which is $4 - a rate above one would come out the same
+    under either operation and would prove nothing.
+    """
 
     def test_commission_is_converted_through_the_source_rate(self):
-        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate="1500")
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate="0.0005")
 
-        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("3.00"))
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("4.00"))
 
     def test_a_currency_switch_is_charged_once(self):
         """Switching coin mints a second invoice for the same order; only the completed one paid."""
 
         order = self.make_sale(self.start + timedelta(days=1))
-        self.make_invoice(order, commission="0.002", rate="1500")
+        self.make_invoice(order, commission="0.002", rate="0.0005")
         cancelled = Transaction.TransactionStatus.CANCELLED_DUPLICATE
-        self.make_invoice(order, commission="0.5", rate="4000", status=cancelled)
+        self.make_invoice(order, commission="0.5", rate="0.004", status=cancelled)
 
-        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("3.00"))
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("4.00"))
+
+    def test_an_overpaid_invoice_pays_a_commission_like_any_other(self):
+        """Its revenue is in gross - `mismatch` is delivered and stamped paid - so its fee counts."""
+
+        mismatch = Transaction.TransactionStatus.MISMATCH
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", status=mismatch)
+
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("4.00"))
 
     def test_an_invoice_without_a_commission_is_left_out_not_counted_as_free(self):
         self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission=None)
-        self.make_invoice(self.make_sale(self.start + timedelta(days=2)), commission="0.002", rate="1500")
+        self.make_invoice(self.make_sale(self.start + timedelta(days=2)), commission="0.002", rate="0.0005")
 
-        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("3.00"))
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("4.00"))
 
     def test_an_invoice_without_a_rate_is_left_out_too(self):
         self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate=None)
 
         self.assertEqual(statistics.money_totals(self.period).commission, Decimal("0"))
 
+    def test_a_zero_rate_is_left_out_rather_than_dividing_by_it(self):
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate="0")
+
+        self.assertEqual(statistics.money_totals(self.period).commission, Decimal("0"))
+
     def test_net_is_gross_minus_commission(self):
-        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate="1500")
+        self.make_invoice(self.make_sale(self.start + timedelta(days=1)), commission="0.002", rate="0.0005")
 
         totals = statistics.money_totals(self.period)
 

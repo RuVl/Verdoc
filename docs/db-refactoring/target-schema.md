@@ -39,7 +39,7 @@ Table catalog_stockitem {
   id integer [primary key]
   file varchar [unique]
   product_id integer [null, ref: > catalog_product.id, note: "SET_NULL"]
-  created_at datetime [null, note: "NULL у строк, заведённых до появления поля"]
+  created_at datetime [note: "дата завоза; у строк до R4 - дата миграции"]
   // status удалён: состояние живёт на Allocation, см. ADR-0001
 }
 

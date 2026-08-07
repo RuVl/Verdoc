@@ -239,17 +239,15 @@ def stock_age(now: datetime) -> dict:
     """
     How long the units currently in stock have been sitting there.
 
-    Rows from before `StockItem.created_at` existed carry NULL and are counted separately instead
-    of being folded in as brand new.
+    Units that predate the field carry the date of the migration, so the oldest age reads as "at
+    least this long" until that generation is sold through.
     """
 
     units = StockItem.objects.available()
-    dated = units.filter(created_at__isnull=False)
-    oldest = dated.order_by("created_at").values_list("created_at", flat=True).first()
+    oldest = units.order_by("created_at").values_list("created_at", flat=True).first()
 
     return {
         "available": units.count(),
-        "undated": units.filter(created_at__isnull=True).count(),
         "oldest_days": (now - oldest).days if oldest else None,
     }
 

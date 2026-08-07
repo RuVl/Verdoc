@@ -109,16 +109,16 @@ class StockItem(models.Model):
 
     :param file: Path to the file being sold.
     :param product: Product that gives the unit its name and price.
-    :param created_at: When the unit was added to stock; NULL for units that predate the field.
+    :param created_at: When the unit was added to stock.
     """
 
     file = models.FileField(upload_to="products/", unique=True)
 
     product = models.ForeignKey(Product, related_name="stock_items", on_delete=models.SET_NULL, null=True)
 
-    # Nullable on purpose: rows that existed before this field was added are left NULL rather than
-    # backfilled with a date nobody can vouch for. Turnover is measured over the rows that have one.
-    created_at = models.DateTimeField(default=timezone.now, null=True, blank=True, editable=False)
+    # Units that predate the field carry the deploy date: it is not when they arrived, but every
+    # row having a date keeps the age figures from needing a second, "unknown" bucket.
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     objects = StockItemQuerySet.as_manager()
 

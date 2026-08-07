@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from django.contrib import admin
+from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.urls import reverse
@@ -24,8 +25,8 @@ from sales.statistics import Period
 PRESETS = [("7", "7 days"), ("30", "30 days"), ("90", "90 days"), ("365", "Year"), ("all", "All time")]
 DEFAULT_PRESET = "30"
 
-# Rows of the stock forecast shown before it is cut; `?stock=all` opens the rest.
-STOCK_ROWS = 20
+# Rows of the stock forecast per page; the page is picked with `?stock_page=`.
+STOCK_PER_PAGE = 20
 
 
 def parse_period(request) -> Period:
@@ -99,14 +100,29 @@ def statistics_view(request):
     context["has_sales"] = context["totals"].orders > 0
     context["query"] = request.GET.urlencode()
 
-    # The forecast is sorted by urgency, so a cut tail is only ever products with stock and no
-    # sales - but the whole list stays one click away.
-    show_all = request.GET.get("stock") == "all"
-    context["stock_total"] = len(context["stock"])
-    context["stock_rows"] = context["stock"] if show_all else context["stock"][:STOCK_ROWS]
-    context["stock_all_url"] = _with_param(request, stock="all")
+    # The forecast is sorted by urgency, so page one is the part that needs acting on - but a
+    # catalogue of a thousand products has to be walkable, not truncated.
+    context.update(_paginate_stock(request, context["stock"]))
 
     return TemplateResponse(request, "admin/sales/statistics.html", {**admin.site.each_context(request), **context})
+
+
+def _paginate_stock(request, rows: list[dict]) -> dict:
+    """
+    One page of the stock forecast, plus the links to walk it.
+
+    `get_page` swallows a missing, non-numeric or out-of-range page the way the rest of the
+    querystring is handled here: a bookmarked URL shows a page, never an error.
+    """
+
+    page = Paginator(rows, STOCK_PER_PAGE).get_page(request.GET.get("stock_page"))
+
+    return {
+        "stock_page": page,
+        # Both keep the period, so paging does not silently reset what the page is showing.
+        "stock_prev_url": _with_param(request, stock_page=page.previous_page_number()) if page.has_previous() else "",
+        "stock_next_url": _with_param(request, stock_page=page.next_page_number()) if page.has_next() else "",
+    }
 
 
 def _orders_of(day: date) -> str:

@@ -2,19 +2,15 @@ import django.utils.timezone
 from django.db import migrations, models
 
 
-def blank_out_existing(apps, schema_editor):
+class Migration(migrations.Migration):
     """
     AddField stamps every existing row with the field default, i.e. the moment of the migration.
 
-    That date would be a lie: nobody knows when those units were actually put in stock. Blank them
-    out so the turnover figures are computed over the rows that carry a real date, and NULL reads
-    as "predates the field" rather than "arrived on deploy day".
+    That is not when those units actually arrived - nobody knows that - but it is the day from
+    which their age is measurable, and it keeps the column non-nullable so no figure needs an
+    "unknown" bucket. Reversing this drops the column and the dates with it.
     """
 
-    apps.get_model("catalog", "StockItem").objects.update(created_at=None)
-
-
-class Migration(migrations.Migration):
     dependencies = [
         ("catalog", "0001_initial"),
     ]
@@ -23,7 +19,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="stockitem",
             name="created_at",
-            field=models.DateTimeField(blank=True, default=django.utils.timezone.now, editable=False, null=True),
+            field=models.DateTimeField(default=django.utils.timezone.now, editable=False),
         ),
-        migrations.RunPython(blank_out_existing, migrations.RunPython.noop),
     ]

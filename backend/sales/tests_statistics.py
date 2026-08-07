@@ -251,14 +251,15 @@ class StockForecastTests(StatisticsFactoryMixin, TestCase):
         self.assertEqual(rows[0]["available"], 0)
         self.assertIsNone(rows[0]["days_left"])
 
-    def test_units_from_before_the_field_existed_are_counted_separately(self):
+    def test_the_age_is_of_the_oldest_unit_still_on_the_shelf(self):
         self.make_stock(3)
-        StockItem.objects.filter(pk__in=StockItem.objects.values_list("pk", flat=True)[:2]).update(created_at=None)
+        oldest = StockItem.objects.first()
+        StockItem.objects.filter(pk=oldest.pk).update(created_at=timezone.now() - timedelta(days=40))
 
         age = statistics.stock_age(timezone.now())
 
         self.assertEqual(age["available"], 3)
-        self.assertEqual(age["undated"], 2)
+        self.assertEqual(age["oldest_days"], 40)
 
 
 class TimeToPayTests(StatisticsFactoryMixin, TestCase):
@@ -380,24 +381,35 @@ class ChartLinkTests(StaffClientMixin, TestCase):
         self.assertEqual([order.pk for order in changelist.context["cl"].result_list], [today.pk])
 
 
-class StockCutTests(StaffClientMixin, TestCase):
-    def test_the_forecast_is_cut_but_the_whole_list_is_one_click_away(self):
+class StockPaginationTests(StaffClientMixin, TestCase):
+    def setUp(self):
+        super().setUp()
         for i in range(25):
             self.make_stock(1, product=Product.objects.create(name=f"Product {i}", country=self.country, price=10))
 
-        cut = self.client.get(self.url)
-        whole = self.client.get(self.url, {"stock": "all"})
+    def test_the_forecast_is_paginated_not_truncated(self):
+        first = self.client.get(self.url).context["stock_page"]
+        second = self.client.get(self.url, {"stock_page": "2"}).context["stock_page"]
 
         # 25 products with stock, plus the mixin's own, which has none.
-        self.assertEqual(cut.context["stock_total"], 26)
-        self.assertEqual(len(cut.context["stock_rows"]), 20)
-        self.assertEqual(len(whole.context["stock_rows"]), 26)
+        self.assertEqual(first.paginator.count, 26)
+        self.assertEqual(len(first.object_list), 20)
+        self.assertEqual(len(second.object_list), 6)
+        self.assertNotEqual(first.object_list[0]["product"], second.object_list[0]["product"])
 
-    def test_the_show_all_link_keeps_the_period(self):
+    def test_a_page_that_does_not_exist_shows_the_last_one(self):
+        page = self.client.get(self.url, {"stock_page": "nonsense"}).context["stock_page"]
+        beyond = self.client.get(self.url, {"stock_page": "99"}).context["stock_page"]
+
+        self.assertEqual(page.number, 1)
+        self.assertEqual(beyond.number, 2)
+
+    def test_paging_keeps_the_period(self):
         response = self.client.get(self.url, {"preset": "7"})
 
-        self.assertIn("preset=7", response.context["stock_all_url"])
-        self.assertIn("stock=all", response.context["stock_all_url"])
+        self.assertIn("preset=7", response.context["stock_next_url"])
+        self.assertIn("stock_page=2", response.context["stock_next_url"])
+        self.assertEqual(response.context["stock_prev_url"], "")
 
 
 class StatisticsPageTests(TestCase):

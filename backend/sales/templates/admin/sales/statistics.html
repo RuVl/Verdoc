@@ -30,6 +30,8 @@
   .stats-chart { height: 320px; margin-bottom: 25px; }
   .stats-empty { padding: 30px; text-align: center; color: var(--body-quiet-color);
     border: 1px dashed var(--border-color); border-radius: 6px; }
+  .stock-paginator { display: flex; align-items: center; gap: 12px; margin-top: 12px;
+    color: var(--body-quiet-color); font-size: 12px; }
   .num { text-align: right; white-space: nowrap; }
   .low { color: var(--error-fg); font-weight: 600; }
 </style>
@@ -98,7 +100,7 @@
           <th class="num">Sold/{{ sales_rate_days }}d</th><th class="num">Days left</th></tr></thead>
         <tbody>
         {# Sorted by urgency: sold out first, then closest to running out, then the never-selling tail. #}
-        {% for row in stock_rows %}
+        {% for row in stock_page %}
           <tr>
             <td>{{ row.product }}</td>
             <td>{{ row.country }}</td>
@@ -115,17 +117,18 @@
         </tbody>
       </table>
     </div>
+    {% if stock_page.paginator.num_pages > 1 %}
+      <p class="stock-paginator">
+        {% if stock_prev_url %}<a href="{{ stock_prev_url }}" class="button">&lsaquo; Previous</a>{% endif %}
+        <span>{{ stock_page.start_index }}&ndash;{{ stock_page.end_index }}
+          of {{ stock_page.paginator.count }} products, closest to running out first</span>
+        {% if stock_next_url %}<a href="{{ stock_next_url }}" class="button">Next &rsaquo;</a>{% endif %}
+      </p>
+    {% endif %}
     <p class="hint">
-      {% if stock_rows|length < stock_total %}
-        Showing {{ stock_rows|length }} of {{ stock_total }} products, closest to running out first -
-        the rest still have stock and sold nothing in the last {{ sales_rate_days }} days
-        (<a href="{{ stock_all_url }}">show all</a>).
-      {% endif %}
       {{ stock_age.available }} unit{{ stock_age.available|pluralize }} free
-      {% if stock_age.oldest_days %}, oldest sitting {{ stock_age.oldest_days }} day{{ stock_age.oldest_days|pluralize }}{% endif %}
-      {% if stock_age.undated %}
-        ({{ stock_age.undated }} of them arrived before the date was recorded, so they are left out of the age)
-      {% endif %}.
+      {% if stock_age.oldest_days %}, oldest sitting {{ stock_age.oldest_days }} day{{ stock_age.oldest_days|pluralize }}{% endif %}.
+      Units that predate the counter carry the date it was deployed, so that age is a floor.
     </p>
   </div>
 

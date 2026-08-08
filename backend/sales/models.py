@@ -4,7 +4,6 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.contrib.sites.models import Site
 from django.db import models
 from django.db.models import Count, F, ProtectedError, Q, UniqueConstraint, Value
 from django.db.models.functions import Coalesce
@@ -15,6 +14,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 
+from backend.sites import absolute_url
 from catalog.models import Product, StockItem
 
 logger = logging.getLogger(__name__)
@@ -428,8 +428,7 @@ class Allocation(models.Model):
         since it travelled in the same message as the token.
         """
 
-        relative_path = reverse("download-file", args=[self.token])
-        return f"{settings.SITE_SCHEME}://{Site.objects.get_current(request).domain}{relative_path}"
+        return absolute_url(reverse("download-file", args=[self.token]), request)
 
 
 class Transaction(models.Model):

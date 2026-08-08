@@ -65,16 +65,20 @@ class ReadOnlyAdmin(admin.ModelAdmin):
         return False
 
 
-class OrderItemInline(admin.TabularInline):
+class DeliveredColumnMixin:
+    """How much of an item has actually been handed over - shown both inline and standalone."""
+
+    @admin.display(description="Delivered")
+    def delivered(self, obj: OrderItem):
+        return f"{obj.allocations.filter(state=Allocation.State.DELIVERED).count()} / {obj.quantity}"
+
+
+class OrderItemInline(DeliveredColumnMixin, admin.TabularInline):
     model = OrderItem
     fields = ["product", "product_name", "quantity", "unit_price", "unit_price_usd", "delivered"]
     readonly_fields = fields
     extra = 0
     show_change_link = True
-
-    @admin.display(description="Delivered")
-    def delivered(self, obj: OrderItem):
-        return f"{obj.allocations.filter(state=Allocation.State.DELIVERED).count()} / {obj.quantity}"
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -110,7 +114,7 @@ class OrderAdmin(ReadOnlyAdmin):
 
 
 @admin.register(OrderItem)
-class OrderItemAdmin(ReadOnlyAdmin):
+class OrderItemAdmin(DeliveredColumnMixin, ReadOnlyAdmin):
     list_display = ("order", "product_name", "quantity", "delivered", "order_status")
     list_filter = ("order__status", "product__country")
     search_fields = ("order__customer__email", "product_name")
@@ -119,10 +123,6 @@ class OrderItemAdmin(ReadOnlyAdmin):
     # (OrderItemInline) and is left out here.
     fields = ("order", "product", "product_name", "unit_price", "quantity")
     readonly_fields = fields
-
-    @admin.display(description="Delivered")
-    def delivered(self, obj: OrderItem):
-        return f"{obj.allocations.filter(state=Allocation.State.DELIVERED).count()} / {obj.quantity}"
 
     @admin.display(description="Order status")
     def order_status(self, obj: OrderItem):

@@ -1,7 +1,5 @@
 from django import forms
-from django.conf import settings
 from django.contrib import admin, messages
-from django.core.mail import get_connection
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponseRedirect
 from django.urls import reverse
@@ -9,10 +7,8 @@ from django.utils.html import format_html_join
 from modeltranslation.admin import TranslationAdmin
 from tinymce.widgets import TinyMCE
 
-from customer.models import Customer
-
 from .models import Broadcast, BroadcastDelivery
-from .services import build_broadcast_email
+from .services import send_broadcast_test
 
 # The whole error log used to live on the Broadcast row; now it is one row per failed recipient,
 # so the form shows a readable head of it instead of everything.
@@ -144,21 +140,13 @@ class BroadcastAdmin(TranslationAdmin):
             self.message_user(request, f"Broadcast {broadcast.id}: no test_email set", messages.WARNING)
             return
 
-        connection = get_connection()  # opened lazily on first send()
         try:
-            for language, _label in settings.LANGUAGES:
-                # Unsaved stand-in: the test address is an arbitrary inbox, not a customer. One
-                # message per language, because that is what there is to proof-read.
-                recipient = Customer(email=broadcast.test_email, language=language)
-                build_broadcast_email(connection, broadcast, recipient, request).send()
-
-            self.message_user(
-                request, f"Broadcast {broadcast.id}: test sent to {broadcast.test_email}", messages.SUCCESS
-            )
+            send_broadcast_test(broadcast, request)
         except Exception as e:  # noqa: BLE001 - report the failure to the admin
             self.message_user(request, f"Broadcast {broadcast.id}: test failed: {e}", messages.ERROR)
-        finally:
-            connection.close()
+            return
+
+        self.message_user(request, f"Broadcast {broadcast.id}: test sent to {broadcast.test_email}", messages.SUCCESS)
 
     def _queue_one(self, request, broadcast: Broadcast):
         if broadcast.status in (Broadcast.Status.DRAFT, Broadcast.Status.FAILED):

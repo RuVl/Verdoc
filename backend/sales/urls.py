@@ -2,7 +2,6 @@ from django.urls import path
 
 from .views import (
     DownloadFileView,
-    LegacyDownloadLinksView,
     OrderCreateView,
     PlisioCallbackView,
     PurchasesView,
@@ -28,11 +27,5 @@ urlpatterns = [
         "purchases/<uuid:token>/refresh-all/",
         RefreshAllAllocationsView.as_view(),
         name="purchases-refresh-all",
-    ),
-    # Pre-R2 link, still in customers' inboxes. Drops out one release after R2.
-    path(
-        "order/file/<str:email>/<str:uuid>/",
-        LegacyDownloadLinksView.as_view(),
-        name="download-file-legacy",
     ),
 ]

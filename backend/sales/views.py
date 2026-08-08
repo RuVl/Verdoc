@@ -2,7 +2,6 @@ import hashlib
 import hmac
 import json
 import logging
-from decimal import Decimal
 
 import requests
 from django import views
@@ -12,13 +11,13 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import FileResponse, HttpResponseNotFound
-from djmoney.money import Money
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from customer.models import Customer
 from sales.models import Allocation, Order, PaymentCallbackLog, Transaction
+from sales.plisio import apply_order_status, callback_to_fields
 from sales.serializers import (
     AllocationSerializer,
     OrderSerializer,
@@ -28,19 +27,6 @@ from sales.serializers import (
 from sales.utils import send_purchases_link
 
 logger = logging.getLogger(__name__)
-
-# Plisio invoice status -> our order status.
-STATUS_MAP = {
-    "new": Order.OrderStatus.PENDING,
-    "pending": Order.OrderStatus.PENDING,
-    "pending internal": Order.OrderStatus.PENDING,
-    "completed": Order.OrderStatus.PAID,
-    "expired": Order.OrderStatus.EXPIRED,
-    "mismatch": Order.OrderStatus.OVERPAID,
-    "error": Order.OrderStatus.ERROR,
-    "cancelled": Order.OrderStatus.CANCELLED,
-    "cancelled duplicate": Order.OrderStatus.PENDING,  # A customer has switched to another cryptocurrency
-}
 
 # Our language codes -> the locales Plisio names its checkout in. Anything else falls back to en_US.
 PLISIO_LANGUAGES = {
@@ -170,13 +156,7 @@ class PlisioCallbackView(APIView):
         try:
             with transaction.atomic():
                 self.upsert_transaction(order, data)
-
-                match order.status:
-                    case Order.OrderStatus.PAID | Order.OrderStatus.OVERPAID:
-                        first_payment = order.mark_paid()
-                        allocations = order.deliver()
-                    case Order.OrderStatus.EXPIRED | Order.OrderStatus.CANCELLED:
-                        order.release()
+                first_payment, allocations = apply_order_status(order, data.get("status"))
         except ValueError as e:
             # Only one thing raises here now: the order is paid but stock ran out while the payment
             # was pending. Everything rolls back, so Plisio can retry once stock is refilled.
@@ -204,47 +184,24 @@ class PlisioCallbackView(APIView):
         )
 
     def upsert_transaction(self, order: Order, data: dict) -> Transaction:
-        """Store the invoice this callback is about and move the order to the matching status."""
+        """Store the invoice this callback is about. The order itself moves in `apply_order_status`."""
 
-        order.status = STATUS_MAP.get(data.get("status"), Order.OrderStatus.ERROR)
+        update_data = {"order": order, **callback_to_fields(data)}
 
-        update_data = {
-            "order": order,
-            "status": data.get("status"),
-            "amount": Decimal(data.get("amount")),
-            "currency": data.get("currency"),
-            "merchant": data.get("merchant"),
-            "merchant_id": data.get("merchant_id"),
-            "comment": data.get("comment"),
-        }
-
-        if data.get("source_currency") and data.get("source_amount"):
-            update_data["source_price"] = Money(
-                currency=data.get("source_currency"),
-                amount=Decimal(data.get("source_amount")),
-            )
-
-        if data.get("source_rate"):
-            update_data["source_rate"] = Decimal(data["source_rate"])
-
-        if data.get("confirmations"):
-            update_data["confirmations"] = int(data["confirmations"])
-
-        if data.get("invoice_commission"):
-            update_data["commission"] = Decimal(data["invoice_commission"])
-
-        if data.get("pending_amount"):
-            update_data["pending_amount"] = Decimal(data["pending_amount"])
-
-        if data.get("tx_urls"):
-            update_data["tx_urls"] = data["tx_urls"]
-
-        order.save(update_fields=["status", "updated_at"])
         # Keyed by txn_id, not by order: switching cryptocurrency mints a new invoice for the same
         # order, and the old schema overwrote the previous one. A payload without an invoice id is
         # not expected - it gets a stable synthetic one instead of a second nameless row.
         txn_id = data.get("txn_id") or f"unknown-{order.id}"
         txn, _ = Transaction.objects.update_or_create(txn_id=txn_id, defaults=update_data)
+
+        if txn.status == Transaction.TransactionStatus.MISMATCH and txn.pending_amount:
+            # Plisio says "mismatch" whichever way the sum went, and we hand the files over either
+            # way - refusing here would strand a customer whose payment Plisio accepted. A missing
+            # amount is a sale to look at by hand, so it does not get to pass quietly.
+            logger.warning(
+                f"Order {order.id}: invoice {txn.txn_id} is short {txn.pending_amount} {txn.currency} "
+                f"and was still delivered"
+            )
 
         return txn
 
@@ -259,7 +216,12 @@ def serve_allocation(allocation: Allocation):
         logger.error(f"Allocation {allocation.id} has no file to serve")
         return HttpResponseNotFound()
 
-    return FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)
+    # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with` here
+    # would close the file before a single byte went out.
+    response = FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)  # noqa: SIM115
+    # Counted only once the file is actually open, so a 404 above never looks like a download.
+    allocation.record_download()
+    return response
 
 
 class DownloadFileView(views.View):
@@ -272,36 +234,6 @@ class DownloadFileView(views.View):
 
         try:
             allocation = Allocation.objects.select_related("stock_item").downloadable().get(token=token)
-        except (Allocation.DoesNotExist, ValidationError, ValueError):
-            return HttpResponseNotFound()
-
-        return serve_allocation(allocation)
-
-
-class LegacyDownloadLinksView(views.View):
-    """
-    The pre-R2 download route, `/api/order/file/<email>/<uuid>/`.
-
-    Kept for one release: links from e-mails sent before R2 are still in customers' inboxes and
-    have to keep working until their tokens expire.
-    """
-
-    def get(self, request, *args, **kwargs):
-        email = self.kwargs.get("email")
-        token = self.kwargs.get("uuid")
-
-        if email is None or token is None:
-            return HttpResponseNotFound()
-
-        try:
-            allocation = (
-                Allocation.objects.select_related("stock_item")
-                .downloadable()
-                .get(
-                    token=token,
-                    order_item__order__customer__email=email,
-                )
-            )
         except (Allocation.DoesNotExist, ValidationError, ValueError):
             return HttpResponseNotFound()
 

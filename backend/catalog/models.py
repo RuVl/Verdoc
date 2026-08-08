@@ -4,6 +4,7 @@ from django.apps import apps
 from django.db import models
 from django.db.models import Count, Exists, IntegerField, OuterRef, Subquery
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 
@@ -108,11 +109,16 @@ class StockItem(models.Model):
 
     :param file: Path to the file being sold.
     :param product: Product that gives the unit its name and price.
+    :param created_at: When the unit was added to stock.
     """
 
     file = models.FileField(upload_to="products/", unique=True)
 
     product = models.ForeignKey(Product, related_name="stock_items", on_delete=models.SET_NULL, null=True)
+
+    # Units that predate the field carry the deploy date: it is not when they arrived, but every
+    # row having a date keeps the age figures from needing a second, "unknown" bucket.
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     objects = StockItemQuerySet.as_manager()
 

@@ -79,6 +79,25 @@ class OrderItemInline(admin.TabularInline):
         return False
 
 
+class TransactionInline(admin.TabularInline):
+    """An order can have several invoices - a currency switch mints a new one (ADR-0006)."""
+
+    model = Transaction
+    fields = ["txn_id", "status", "amount", "currency", "source_price", "commission", "created_at"]
+    readonly_fields = fields
+    extra = 0
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Order)
 class OrderAdmin(ReadOnlyAdmin):
     list_display = ("id", "customer", "status", "total_price", "created_at", "paid_at")
@@ -86,7 +105,7 @@ class OrderAdmin(ReadOnlyAdmin):
     search_fields = ("customer__email", "id")
     list_select_related = ("customer",)
     readonly_fields = ("customer", "status", "total_price", "invoice_url", "created_at", "updated_at", "paid_at")
-    inlines = [OrderItemInline]
+    inlines = [OrderItemInline, TransactionInline]
 
 
 @admin.register(OrderItem)
@@ -111,7 +130,7 @@ class OrderItemAdmin(ReadOnlyAdmin):
 
 @admin.register(Allocation)
 class AllocationAdmin(ReadOnlyAdmin):
-    list_display = ("id", "order_item", "stock_item", "state", "is_downloadable", "download_link")
+    list_display = ("id", "order_item", "stock_item", "state", "is_downloadable", "download_count", "download_link")
     list_filter = ("state", "reserved_at", "order_item__order__status")
     search_fields = ("order_item__order__customer__email", "order_item__product_name", "token")
     list_select_related = ("order_item", "order_item__order", "order_item__order__customer", "stock_item")
@@ -124,6 +143,9 @@ class AllocationAdmin(ReadOnlyAdmin):
         "released_at",
         "token_expires_at",
         "download_link",
+        "download_count",
+        "first_downloaded_at",
+        "last_downloaded_at",
     )
     exclude = ("token",)
 

@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.db import models
-from django.db.models import Count, ProtectedError, Q, UniqueConstraint
+from django.db.models import Count, F, ProtectedError, Q, UniqueConstraint, Value
+from django.db.models.functions import Coalesce
 from django.db.transaction import atomic
 from django.http import HttpRequest
 from django.urls import reverse
@@ -95,6 +96,12 @@ class Order(models.Model):
 
     PAID_STATUSES = (OrderStatus.PAID, OrderStatus.OVERPAID)
 
+    # How long a reservation lives. The invoice Plisio mints expires in 60 minutes, so an order
+    # gets that from its last move plus ten minutes of grace from creation. Read these instead of
+    # writing the number again - `statistics.time_to_pay` counts late payments against them.
+    RESERVATION_FROM_CREATED = timedelta(hours=1, minutes=10)
+    RESERVATION_FROM_UPDATED = timedelta(hours=1)
+
     customer = models.ForeignKey("customer.Customer", related_name="orders", on_delete=models.PROTECT)
     status = models.CharField(max_length=15, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     total_price = MoneyField(max_digits=10, decimal_places=2, default_currency="USD")
@@ -121,10 +128,11 @@ class Order(models.Model):
 
     def is_expired(self):
         now = timezone.now()
-        from_created = timedelta(hours=1, minutes=10)  # From creation
-        from_updated = timedelta(hours=1)  # From last update
 
-        return now > self.created_at + from_created or now > self.updated_at + from_updated
+        return (
+            now > self.created_at + self.RESERVATION_FROM_CREATED
+            or now > self.updated_at + self.RESERVATION_FROM_UPDATED
+        )
 
     def mark_paid(self) -> bool:
         """
@@ -331,6 +339,9 @@ class Allocation(models.Model):
     :param released_at: When the unit was given back.
     :param token: Opens this single file; rotated on request, see DOWNLOAD_TTL.
     :param token_expires_at: When the token stops working.
+    :param download_count: How many times the file behind this allocation was served.
+    :param first_downloaded_at: When the customer first took the file.
+    :param last_downloaded_at: When the customer last took the file.
     """
 
     class State(models.TextChoices):
@@ -349,6 +360,11 @@ class Allocation(models.Model):
 
     token = models.UUIDField(null=True, blank=True, unique=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
+
+    # Written only by `record_download`, which is the one place a download touches the database.
+    download_count = models.PositiveIntegerField(default=0)
+    first_downloaded_at = models.DateTimeField(null=True, blank=True)
+    last_downloaded_at = models.DateTimeField(null=True, blank=True)
 
     objects = AllocationQuerySet.as_manager()
 
@@ -379,6 +395,21 @@ class Allocation(models.Model):
         if commit:
             self.save(update_fields=["token", "token_expires_at"])
 
+    def record_download(self):
+        """
+        Count one served download.
+
+        An UPDATE with F() rather than a save(): two browsers pulling the same link at once must
+        add up to two, and nothing else on the row may be written back from a stale instance.
+        """
+
+        now = timezone.now()
+        Allocation.objects.filter(pk=self.pk).update(
+            download_count=F("download_count") + 1,
+            first_downloaded_at=Coalesce("first_downloaded_at", Value(now)),
+            last_downloaded_at=now,
+        )
+
     def get_download_url(self, request: HttpRequest | None) -> str:
         """
         Absolute link to this one file.
@@ -405,9 +436,11 @@ class Transaction(models.Model):
     :param currency: Cryptocurrency of the invoice.
     :param pending_amount: What is still missing when the customer underpaid.
     :param tx_urls: Blockchain transactions of this invoice, as sent by Plisio.
-    :param source_price: Source amount and currency (if provided).
-    :param source_rate: Exchange rate currency to source_currency (if source_currency provided).
-    :param commission: Commission amount of the invoice.
+    :param source_price: Source amount and currency (if provided) - the fiat side of the invoice.
+    :param source_rate: How much of `currency` one unit of `source_currency` buys, so that
+        `amount / source_rate` is the fiat value. It divides, it never multiplies - Plisio's own
+        example has 0.0104 ETH at a rate of 0.00052 for $20.
+    :param commission: What Plisio kept, quoted in the invoice's cryptocurrency, not in fiat.
     :param status: Status of the invoice: new, pending, pending internal, expired, completed,
         mismatch, error, cancelled, cancelled duplicate.
     :param confirmations: Number of confirmations of the crypto transaction.

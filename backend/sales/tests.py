@@ -4,6 +4,8 @@ import json
 import tempfile
 import uuid
 from datetime import timedelta
+from decimal import Decimal
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -332,6 +334,46 @@ class PlisioCallbackTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(PaymentCallbackLog.objects.filter(order__isnull=True).count(), 1)
 
+    def test_the_invoice_keeps_the_money_fields_plisio_sent(self):
+        """`commission` is in the invoice's coin and `source_rate` is crypto per dollar - see statistics."""
+
+        self.post_callback(
+            source_currency="USD",
+            source_amount="10.00",
+            source_rate="0.00005",
+            invoice_commission="0.0000025",
+            confirmations="3",
+        )
+
+        txn = Transaction.objects.get(txn_id="txn-1")
+        self.assertEqual(txn.source_price.amount, Decimal("10.00"))
+        self.assertEqual(str(txn.source_price.currency), "USD")
+        self.assertEqual(txn.source_rate, Decimal("0.00005"))
+        self.assertEqual(txn.commission, Decimal("0.0000025"))
+        self.assertEqual(txn.confirmations, 3)
+
+    def test_a_later_callback_does_not_blank_what_an_earlier_one_filled(self):
+        """Plisio repeats an invoice, and the repeat is not always the richer message."""
+
+        self.post_callback(invoice_commission="0.0000025", source_rate="0.00005")
+        self.post_callback()
+
+        txn = Transaction.objects.get(txn_id="txn-1")
+        self.assertEqual(txn.commission, Decimal("0.0000025"))
+        self.assertEqual(txn.source_rate, Decimal("0.00005"))
+
+    def test_a_short_payment_is_delivered_but_says_so_in_the_log(self):
+        """`mismatch` is Plisio's word either way; we hand the files over and log the shortfall."""
+
+        with self.assertLogs("sales.views", level="WARNING") as logged:
+            response = self.post_callback(status="mismatch", pending_amount="0.0001")
+
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.OrderStatus.OVERPAID)
+        self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
+        self.assertIn("is short 0.0001 BTC", "\n".join(logged.output))
+
 
 class ServedFilesMixin(OrderItemFactoryMixin):
     """Puts real bytes behind every StockItem, so a download can actually be streamed."""
@@ -379,23 +421,51 @@ class DownloadTests(ServedFilesMixin, TestCase):
         self.assertEqual(self.download(self.allocation.token), 404)
 
 
-class LegacyDownloadTests(ServedFilesMixin, TestCase):
-    """Links from e-mails sent before R2 keep working until their tokens expire."""
+class DownloadCounterTests(ServedFilesMixin, TestCase):
+    """The only place a download writes to the database."""
 
-    def download(self, email: str, token) -> int:
-        return self.client.get(reverse("download-file-legacy", args=[email, token])).status_code
+    def download(self, token=None):
+        response = self.client.get(reverse("download-file", args=[token or self.allocation.token]))
+        # FileResponse is lazy: the counter is only written once the body has been consumed.
+        if response.status_code == 200:
+            b"".join(response.streaming_content)
+        self.allocation.refresh_from_db()
+        return response
 
-    def test_the_old_link_still_serves_the_file(self):
-        self.assertEqual(self.download(self.customer.email, self.allocation.token), 200)
+    def test_serving_the_file_counts_one_download(self):
+        self.download()
 
-    def test_someone_elses_email_is_not_served(self):
-        self.assertEqual(self.download("other@example.com", self.allocation.token), 404)
+        self.assertEqual(self.allocation.download_count, 1)
+        self.assertIsNotNone(self.allocation.first_downloaded_at)
+        self.assertEqual(self.allocation.first_downloaded_at, self.allocation.last_downloaded_at)
 
-    def test_expired_token_is_not_served(self):
+    def test_a_second_download_moves_only_the_last_stamp(self):
+        self.download()
+        first = self.allocation.first_downloaded_at
+
+        self.download()
+
+        self.assertEqual(self.allocation.download_count, 2)
+        self.assertEqual(self.allocation.first_downloaded_at, first)
+        self.assertGreater(self.allocation.last_downloaded_at, first)
+
+    def test_a_refused_download_counts_nothing(self):
         self.allocation.token_expires_at = timezone.now() - timedelta(seconds=1)
         self.allocation.save(update_fields=["token_expires_at"])
 
-        self.assertEqual(self.download(self.customer.email, self.allocation.token), 404)
+        self.assertEqual(self.download().status_code, 404)
+        self.assertEqual(self.allocation.download_count, 0)
+        self.assertIsNone(self.allocation.first_downloaded_at)
+
+    def test_the_counter_survives_a_token_rotation(self):
+        """Re-issuing the link does not reset how many times the file was taken."""
+
+        self.download()
+        self.allocation.issue_token()
+
+        self.download()
+
+        self.assertEqual(self.allocation.download_count, 2)
 
 
 class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
@@ -1070,3 +1140,35 @@ class MailOutageTests(OrderItemFactoryMixin, TestCase):
             response = self.client.post(reverse("send-links"), {"email": self.customer.email}, format="json")
 
         self.assertEqual(response.status_code, 502)
+
+
+class PruneCallbackLogsTests(OrderItemFactoryMixin, TestCase):
+    """The raw payloads are for debugging a sale, not for keeping forever."""
+
+    def make_log(self, age_days: int) -> PaymentCallbackLog:
+        log = PaymentCallbackLog.objects.create(order=self.order, txn_id=f"txn-{age_days}", payload={})
+        # auto_now_add wins over anything passed to create(), so the date is set afterwards.
+        PaymentCallbackLog.objects.filter(pk=log.pk).update(received_at=timezone.now() - timedelta(days=age_days))
+        return log
+
+    def test_only_the_logs_past_the_window_go(self):
+        self.make_log(400)
+        self.make_log(10)
+
+        call_command("prune_callback_logs", days=180, skip_checks=False)
+
+        self.assertEqual([log.txn_id for log in PaymentCallbackLog.objects.all()], ["txn-10"])
+
+    def test_a_dry_run_deletes_nothing(self):
+        self.make_log(400)
+
+        call_command("prune_callback_logs", days=180, dry_run=True, skip_checks=False)
+
+        self.assertEqual(PaymentCallbackLog.objects.count(), 1)
+
+    def test_it_refuses_to_empty_the_table(self):
+        self.make_log(0)
+
+        call_command("prune_callback_logs", days=0, stderr=StringIO(), skip_checks=False)
+
+        self.assertEqual(PaymentCallbackLog.objects.count(), 1)

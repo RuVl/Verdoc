@@ -257,9 +257,9 @@ class SendDownloadLinksView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        user_email = serializer.validated_data["email"]
-        customer = Customer.objects.filter(email=user_email).first()
-        orders = list(customer.orders.filter(status__in=Order.PAID_STATUSES)) if customer else []
+        email = serializer.validated_data["email"]
+        customer = Customer.objects.filter(email=email).first()
+        orders = list(customer.orders.paid()) if customer else []
 
         if not orders:
             return HttpResponseNotFound()
@@ -277,7 +277,7 @@ class SendDownloadLinksView(APIView):
                 # URL loses it here. File tokens are left alone - the page refreshes them itself.
                 customer.rotate_access_token()
         except ValueError as e:
-            logger.warning(f"Cannot re-issue links for {user_email}: {e}")
+            logger.warning(f"Cannot re-issue links for {email}: {e}")
             return Response({"detail": "Order processing conflict"}, status=status.HTTP_409_CONFLICT)
 
         try:
@@ -285,7 +285,7 @@ class SendDownloadLinksView(APIView):
         except Exception as e:
             # The token was already rotated, so the previous link is gone either way - the customer
             # has to be told to try again rather than left staring at a success message.
-            logger.error(f"Cannot mail the purchases link to {user_email}: {e}")
+            logger.error(f"Cannot mail the purchases link to {email}: {e}")
             return Response({"detail": "Cannot send the e-mail right now"}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response({"detail": "The link is sent"}, status=status.HTTP_200_OK)
@@ -316,7 +316,7 @@ class PurchasesView(APIView):
             return Response({"detail": PURCHASES_GONE}, status=status.HTTP_404_NOT_FOUND)
 
         orders = (
-            customer.orders.filter(status__in=Order.PAID_STATUSES)
+            customer.orders.paid()
             .prefetch_related(
                 "items",
                 Prefetch("items__allocations", queryset=Allocation.objects.downloadable()),

@@ -38,6 +38,18 @@ def protect_held_units(collector, field, sub_objs, using):
 
 
 class OrderQuerySet(models.QuerySet):
+    def paid(self) -> "OrderQuerySet":
+        """
+        Orders the customer has actually paid for - the only definition, see `CustomerQuerySet`.
+
+        Keyed off `paid_at` and not off `status`: the stamp is written exactly once by
+        `mark_paid()`, while the status keeps moving with every callback. Plisio reports the
+        invoice a customer abandoned when switching coin as `cancelled duplicate`, which maps back
+        to PENDING - filtering by status would drop a delivered order off the purchases page.
+        """
+
+        return self.filter(paid_at__isnull=False)
+
     def reusable(self, email: str, items: list[dict]) -> "Order | None":
         """
         A live invoice of this customer for exactly this cart, or None.
@@ -93,8 +105,6 @@ class Order(models.Model):
         EXPIRED = "EXPIRED", "Expired"
         ERROR = "ERROR", "Error"
         CANCELLED = "CANCELLED", "Cancelled"
-
-    PAID_STATUSES = (OrderStatus.PAID, OrderStatus.OVERPAID)
 
     # How long a reservation lives. The invoice Plisio mints expires in 60 minutes, so an order
     # gets that from its last move plus ten minutes of grace from creation. Read these instead of

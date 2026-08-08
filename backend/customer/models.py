@@ -21,8 +21,9 @@ class CustomerQuerySet(models.QuerySet):
     """
     The one definition of "a buyer", shared by the admin and the broadcast recipient list.
 
-    Paid means `paid_at` is stamped, not `status in PAID_STATUSES`: the stamp is written exactly
-    once by `Order.mark_paid()`, while the status can still move afterwards.
+    Paid means `paid_at` is stamped, not that the status says so: the stamp is written exactly
+    once by `Order.mark_paid()`, while the status can still move afterwards. `OrderQuerySet.paid()`
+    is the same rule seen from the order side.
     """
 
     def _paid_orders(self):

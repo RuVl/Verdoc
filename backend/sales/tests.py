@@ -499,6 +499,7 @@ class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
         self.item.deliver()
         self.order.status = Order.OrderStatus.PAID
         self.order.save(update_fields=["status"])
+        self.order.mark_paid()
 
         self.client = APIClient()
         self.url = reverse("send-links")
@@ -539,6 +540,17 @@ class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
         response = self.client.post(self.url, {"email": "nobody@example.com"}, format="json")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_a_paid_order_whose_status_moved_on_is_still_served(self):
+        """A `cancelled duplicate` callback for the abandoned invoice must not hide the purchase."""
+
+        self.order.status = Order.OrderStatus.PENDING
+        self.order.save(update_fields=["status"])
+
+        response = self.client.post(self.url, {"email": self.customer.email}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
 
 
 @override_settings(VALIDATE_EMAIL_MX=False)
@@ -1035,6 +1047,20 @@ class PurchasesPageTests(OrderItemFactoryMixin, TestCase):
 
         self.assertEqual(self.page(uuid.uuid4()).data, expired)
 
+    def test_a_paid_order_whose_status_moved_on_is_still_listed(self):
+        """
+        Switching cryptocurrency leaves a `cancelled duplicate` callback for the invoice the
+        customer walked away from, and that maps back to PENDING. `paid_at` is what was paid.
+        """
+
+        self.order.status = Order.OrderStatus.PENDING
+        self.order.save(update_fields=["status"])
+
+        response = self.page()
+
+        self.assertEqual(len(response.data["orders"]), 1)
+        self.assertEqual(response.data["orders"][0]["id"], self.order.id)
+
     def test_an_expired_file_token_offers_no_url(self):
         Allocation.objects.update(token_expires_at=timezone.now() - timedelta(seconds=1))
 
@@ -1155,6 +1181,7 @@ class MailOutageTests(OrderItemFactoryMixin, TestCase):
         self.item.deliver()
         self.order.status = Order.OrderStatus.PAID
         self.order.save(update_fields=["status"])
+        self.order.mark_paid()
 
         with (
             patch("sales.views.send_purchases_link", side_effect=OSError("smtp is down")),

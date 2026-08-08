@@ -206,7 +206,7 @@ class PlisioCallbackView(APIView):
         return txn
 
 
-def serve_allocation(allocation: Allocation):
+def serve_allocation(allocation: Allocation, count: bool = True):
     """Stream the file behind an allocation, or 404 - never say which of the checks failed."""
 
     if not allocation.is_token_valid():
@@ -219,8 +219,9 @@ def serve_allocation(allocation: Allocation):
     # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with` here
     # would close the file before a single byte went out.
     response = FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)  # noqa: SIM115
-    # Counted only once the file is actually open, so a 404 above never looks like a download.
-    allocation.record_download()
+    if count:
+        # Counted only once the file is actually open, so a 404 above never looks like a download.
+        allocation.record_download()
     return response
 
 
@@ -237,7 +238,14 @@ class DownloadFileView(views.View):
         except (Allocation.DoesNotExist, ValidationError, ValueError):
             return HttpResponseNotFound()
 
-        return serve_allocation(allocation)
+        # "Did the customer take the file" is what the counter answers, so the owner checking a file
+        # from the admin must not move it. The check is on the session, not on the link: a staff
+        # member who opens a real customer link while logged into the admin is not counted either.
+        staff = request.user.is_authenticated and request.user.is_staff
+        if staff:
+            logger.info(f"Staff download of allocation {allocation.id}, not counted")
+
+        return serve_allocation(allocation, count=not staff)
 
 
 class SendDownloadLinksView(APIView):

@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.db.transaction import atomic
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.module_loading import import_string
 from djmoney.contrib.exchange.models import ExchangeBackend, Rate
@@ -149,23 +150,25 @@ class AllocationAdmin(ReadOnlyAdmin):
     )
     exclude = ("token",)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.request = None
-
-    def get_queryset(self, request):
-        self.request = request
-        return super().get_queryset(request)
-
     @admin.display(boolean=True, description="Downloadable")
     def is_downloadable(self, obj: Allocation):
         return obj.is_token_valid()
 
     @admin.display(description="Download link")
     def download_link(self, obj: Allocation):
+        """
+        The customer's own link, relative.
+
+        Relative rather than absolute so it needs no request: the previous version stashed one on
+        the ModelAdmin, which is a single instance shared by every thread of the process. The admin
+        is served from the same origin as the API, so the href resolves either way, and following
+        it does not move `download_count` - see DownloadFileView.
+        """
+
         if obj.token is None:
             return "-"
-        return format_html("<a href='{url}'>{text}</a>", url=obj.get_download_url(self.request), text=obj.token)
+
+        return format_html("<a href='{url}'>{text}</a>", url=reverse("download-file", args=[obj.token]), text=obj.token)
 
 
 @admin.register(Transaction)

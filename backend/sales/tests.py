@@ -12,6 +12,7 @@ from unittest.mock import patch
 import dns.resolver
 import requests
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core import mail
 from django.core.cache import cache
@@ -466,6 +467,28 @@ class DownloadCounterTests(ServedFilesMixin, TestCase):
         self.download()
 
         self.assertEqual(self.allocation.download_count, 2)
+
+    def test_a_staff_member_looking_at_the_file_is_not_a_download(self):
+        """The counter answers "did the customer take it", so the owner checking a file must not move it."""
+
+        staff = User.objects.create_user("owner", password="owner", is_staff=True)
+        self.client.force_login(staff)
+
+        self.assertEqual(self.download().status_code, 200)
+
+        self.assertEqual(self.allocation.download_count, 0)
+        self.assertIsNone(self.allocation.first_downloaded_at)
+        self.assertIsNone(self.allocation.last_downloaded_at)
+
+    def test_a_customer_still_counts_after_staff_looked(self):
+        staff = User.objects.create_user("owner", password="owner", is_staff=True)
+        self.client.force_login(staff)
+        self.download()
+
+        self.client.logout()
+        self.download()
+
+        self.assertEqual(self.allocation.download_count, 1)
 
 
 class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):

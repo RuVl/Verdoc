@@ -17,6 +17,9 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 
 # Development settings
 if DEBUG:
+    # Needed because a local run has no django_site row matching the host it is served on. The
+    # price is that Site.objects.get_current(request) stops reading the request, so the mirror
+    # branch in OrderCreateView is unreachable locally - it always picks the primary key.
     SITE_ID = 1
 
 # Production settings
@@ -85,7 +88,6 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 
 # Site settings
-# SITE_ID = 1
 # Used to build absolute URLs (download links, the purchases page link in e-mails).
 # Overridable so a local run can hand out http:// links that actually open.
 SITE_SCHEME = env("SITE_SCHEME", default="https")
@@ -179,7 +181,6 @@ SERIALIZATION_MODULES = {
 
 # Internationalization
 USE_I18N = True
-USE_L10N = True
 LANGUAGE_CODE = "en"
 LANGUAGES = (
     ("en", "English"),
@@ -198,7 +199,6 @@ TIME_ZONE = "UTC"
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
-STATICFILES_DIRS = []  # List of non-standard paths
 
 # Currency settings
 CURRENCIES = ("USD", "RUB")

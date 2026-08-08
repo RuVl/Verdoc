@@ -1,6 +1,5 @@
 import logging
 
-from django.utils import translation
 from djmoney.contrib.exchange.models import Rate
 from rest_framework import views, viewsets
 from rest_framework.response import Response
@@ -12,19 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 class CountryViewSet(viewsets.ReadOnlyModelViewSet):
-    """Send all countries with nested products"""
+    """
+    Send all countries with nested products.
+
+    Both languages go out on every response - `TranslationFieldsMixin` expands `name` into
+    `name_en` and `name_ru` - and the storefront picks one client-side, so there is nothing here
+    for a `?lang=` to change.
+    """
 
     serializer_class = CountrySerializer
 
     def get_queryset(self):
         in_stock = Product.objects.with_available().filter(available__gt=0).values("pk")
         return Country.objects.filter(products__pk__in=in_stock).distinct()
-
-    def list(self, request, *args, **kwargs):
-        lang = request.GET.get("lang")
-        with translation.override(lang):
-            response = super().list(request, *args, **kwargs)
-        return response
 
 
 class ExchangeRatesView(views.APIView):

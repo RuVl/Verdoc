@@ -207,13 +207,15 @@ class OrderStateTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(product_a.available_count(), 2)
         self.assertEqual(product_b.available_count(), 1)
 
-    def test_refresh_download_tokens_rotates_delivered_only(self):
+    def test_reissuing_tokens_rotates_delivered_units_only(self):
         item = self.make_item(self.make_product(2), quantity=1)
         item.reserve()
         delivered = item.deliver()[0]
         old_token = delivered.token
+        # A reserved unit of the same order has no token to rotate and must stay out of it.
+        self.make_item(self.make_product(1, name="Other"), quantity=1).reserve()
 
-        refreshed = self.order.refresh_download_tokens()
+        refreshed = Allocation.objects.downloadable().of_customer(self.customer).reissue_tokens()
 
         self.assertEqual(len(refreshed), 1)
         self.assertNotEqual(refreshed[0].token, old_token)

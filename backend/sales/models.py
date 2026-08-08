@@ -182,11 +182,6 @@ class Order(models.Model):
 
         return allocations
 
-    def refresh_download_tokens(self) -> list["Allocation"]:
-        """Issue new tokens for everything already delivered, resetting DOWNLOAD_TTL."""
-
-        return Allocation.objects.filter(order_item__order=self).downloadable().reissue_tokens()
-
 
 class OrderItem(models.Model):
     """

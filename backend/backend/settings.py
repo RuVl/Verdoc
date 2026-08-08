@@ -51,10 +51,6 @@ INSTALLED_APPS = [
     "customer",
     "mailing",
     "sales",
-    # Legacy apps: kept read-only for their migrations until the data transfer is verified on prod.
-    # They must stay after the new apps so that same-named management commands resolve to the new ones.
-    "passport",
-    "order",
 ]
 
 MIDDLEWARE = [

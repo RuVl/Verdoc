@@ -186,10 +186,20 @@
     </div>
     <p class="hint">
       {{ funnel.leads }} new customer{{ funnel.leads|pluralize }} never paid for anything.
-      Median time to pay: {{ time_to_pay.median|default:"&mdash;" }}.
+      Time to pay: median {{ time_to_pay.median|default:"&mdash;" }},
+      average {{ time_to_pay.average|default:"&mdash;" }}.
       {{ time_to_pay.late }} order{{ time_to_pay.late|pluralize }}
       ({{ time_to_pay.late_share|floatformat:1 }}%) arrived after the reservation had expired.
     </p>
+    {% if stages.covered %}
+      <p class="hint">
+        Of {{ stages.covered }} order{{ stages.covered|pluralize }} with a pending callback, the
+        invoice waited for the payment (new &rarr; pending) median {{ stages.waiting_median }},
+        average {{ stages.waiting_average }}, then the chain confirmed it (pending &rarr; completed)
+        median {{ stages.confirming_median }}, average {{ stages.confirming_average }}.
+        Orders whose pending callback never came or was already pruned are left out.
+      </p>
+    {% endif %}
   </div>
 
   <div class="stats-block">

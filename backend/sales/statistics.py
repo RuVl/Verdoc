@@ -24,7 +24,7 @@ from django.db.models.functions import Coalesce, TruncDay
 
 from catalog.models import Product, StockItem
 from customer.models import Customer
-from sales.models import Allocation, Order, OrderItem, Transaction
+from sales.models import Allocation, Order, OrderItem, PaymentCallbackLog, Transaction
 
 # How long an order may take to pay before its reservation is gone and the stock had to be handed
 # out again. Taken from the model, not written out again, so the two cannot drift apart.
@@ -34,6 +34,10 @@ RESERVATION_WINDOW = Order.RESERVATION_FROM_UPDATED
 # we hand the files over for it and stamp paid_at, so its revenue is in `gross` - and its
 # commission has to be in the total beside it, or the shop looks more profitable than it is.
 PAID_INVOICES = (Transaction.TransactionStatus.COMPLETED, Transaction.TransactionStatus.MISMATCH)
+
+# The callback statuses that mean the money is on its way but the chain has not confirmed it yet -
+# the middle of the walk from a freshly minted invoice to a paid order.
+PENDING_INVOICES = (Transaction.TransactionStatus.PENDING, Transaction.TransactionStatus.PENDING_INTERNAL)
 
 # The window the stock forecast measures the sales rate over, regardless of the page's period:
 # "will it last" is a question about now, not about the range being browsed.
@@ -328,6 +332,76 @@ def time_to_pay(period: Period) -> dict:
         "late": stats["late"],
         "late_share": Decimal(stats["late"]) / Decimal(stats["total"]) * 100 if stats["total"] else Decimal("0"),
     }
+
+
+def payment_stages(period: Period) -> dict:
+    """
+    Where the wait between a minted invoice and a paid order goes: new -> pending -> completed.
+
+    Two legs, and they add up to `time_to_pay`: `waiting` is the customer deciding and sending
+    (new -> pending), `confirming` is the chain (pending -> completed). Only the middle stamp has
+    to be found, and it comes from the raw callbacks - a `Transaction` keeps one `updated_at`, which
+    the paid callback overwrites - while the end is `paid_at`, written once by `Order.mark_paid()`.
+
+    An order with no pending callback is left out of both legs rather than counted as instant: the
+    state can be skipped entirely (a payment first seen in a confirmed block), and callbacks are
+    pruned after `prune_callback_logs.DEFAULT_RETENTION_DAYS`, so a period older than the retention
+    window reports on however many are left. `covered` is how many orders the figures are of.
+    """
+
+    rows = (
+        PaymentCallbackLog.objects.filter(order__paid_at__gte=period.start, order__paid_at__lt=period.end)
+        .values("order_id")
+        .annotate(
+            # Grouped by order, so both order columns are constant inside the group - Min() is only
+            # how a GROUP BY query is allowed to carry them along.
+            created=Min("order__created_at"),
+            paid=Min("order__paid_at"),
+            pending=Min("received_at", filter=Q(payload__status__in=PENDING_INVOICES)),
+        )
+        .order_by()
+    )
+
+    waiting, confirming = [], []
+    for row in rows:
+        if row["pending"] is None:
+            continue
+
+        waiting.append(row["pending"] - row["created"])
+        # A pending callback that arrived after paid_at was stamped - a repeat, or a message
+        # overtaken by the paid one - would make the chain read as negative time.
+        confirming.append(max(row["paid"] - row["pending"], timedelta(0)))
+
+    return {
+        "covered": len(waiting),
+        "waiting_median": _median(waiting),
+        "waiting_average": _average(waiting),
+        "confirming_median": _median(confirming),
+        "confirming_average": _average(confirming),
+    }
+
+
+def _median(values: list[timedelta]) -> timedelta | None:
+    """
+    The middle value, interpolating over an even count - the reading `Median` gives in SQL.
+
+    In Python because the two legs are assembled here anyway, and importing the standard library's
+    `statistics` into a module of this name would read like a bug.
+    """
+
+    if not values:
+        return None
+
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return _to_seconds(ordered[middle])
+
+    return _to_seconds((ordered[middle - 1] + ordered[middle]) / 2)
+
+
+def _average(values: list[timedelta]) -> timedelta | None:
+    return _to_seconds(sum(values, timedelta()) / len(values)) if values else None
 
 
 def _to_seconds(value: timedelta | None) -> timedelta | None:

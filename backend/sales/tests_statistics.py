@@ -16,7 +16,7 @@ from django.utils import timezone
 from catalog.models import Country, Product, StockItem
 from customer.models import Customer
 from sales import statistics
-from sales.models import Allocation, Order, OrderItem, Transaction
+from sales.models import Allocation, Order, OrderItem, PaymentCallbackLog, Transaction
 from sales.statistics import Period
 
 
@@ -352,6 +352,108 @@ class TimeToPayTests(StatisticsFactoryMixin, TestCase):
 
         self.assertIsNone(stats["median"])
         self.assertEqual(stats["late_share"], Decimal("0"))
+
+
+class PaymentStageTests(StatisticsFactoryMixin, TestCase):
+    """The split of the wait into new -> pending and pending -> completed."""
+
+    def make_callback(self, order, status, received_at):
+        """auto_now_add ignores what we pass, so received_at is set afterwards."""
+
+        log = PaymentCallbackLog.objects.create(
+            order=order,
+            txn_id=f"txn-{order.pk}",
+            payload={"txn_id": f"txn-{order.pk}", "status": status, "order_number": str(order.pk)},
+        )
+        PaymentCallbackLog.objects.filter(pk=log.pk).update(received_at=received_at)
+
+        return log
+
+    def make_paid_order(self, minutes_to_pending: int, minutes_confirming: int) -> Order:
+        created_at = self.start + timedelta(days=1)
+        pending_at = created_at + timedelta(minutes=minutes_to_pending)
+        paid_at = pending_at + timedelta(minutes=minutes_confirming)
+
+        order = self.make_sale(paid_at, created_at=created_at)
+        self.make_callback(order, Transaction.TransactionStatus.PENDING, pending_at)
+
+        return order
+
+    def test_the_two_legs_add_up_to_the_time_to_pay(self):
+        self.make_paid_order(minutes_to_pending=10, minutes_confirming=20)
+
+        stages = statistics.payment_stages(self.period)
+
+        self.assertEqual(stages["covered"], 1)
+        self.assertEqual(stages["waiting_median"], timedelta(minutes=10))
+        self.assertEqual(stages["confirming_median"], timedelta(minutes=20))
+        self.assertEqual(
+            stages["waiting_median"] + stages["confirming_median"],
+            statistics.time_to_pay(self.period)["median"],
+        )
+
+    def test_the_median_interpolates_and_the_average_is_its_own_number(self):
+        self.make_paid_order(minutes_to_pending=10, minutes_confirming=1)
+        self.make_paid_order(minutes_to_pending=20, minutes_confirming=1)
+        self.make_paid_order(minutes_to_pending=60, minutes_confirming=1)
+        self.make_paid_order(minutes_to_pending=90, minutes_confirming=1)
+
+        stages = statistics.payment_stages(self.period)
+
+        self.assertEqual(stages["waiting_median"], timedelta(minutes=40))
+        self.assertEqual(stages["waiting_average"], timedelta(minutes=45))
+
+    def test_pending_internal_counts_as_the_middle_stamp(self):
+        created_at = self.start + timedelta(days=1)
+        order = self.make_sale(created_at + timedelta(minutes=30), created_at=created_at)
+        self.make_callback(order, Transaction.TransactionStatus.PENDING_INTERNAL, created_at + timedelta(minutes=5))
+
+        stages = statistics.payment_stages(self.period)
+
+        self.assertEqual(stages["covered"], 1)
+        self.assertEqual(stages["waiting_median"], timedelta(minutes=5))
+
+    def test_the_earliest_pending_callback_wins_over_its_repeats(self):
+        created_at = self.start + timedelta(days=1)
+        order = self.make_sale(created_at + timedelta(minutes=30), created_at=created_at)
+        for minutes in (25, 5, 15):
+            self.make_callback(order, Transaction.TransactionStatus.PENDING, created_at + timedelta(minutes=minutes))
+
+        stages = statistics.payment_stages(self.period)
+
+        self.assertEqual(stages["waiting_median"], timedelta(minutes=5))
+        self.assertEqual(stages["confirming_median"], timedelta(minutes=25))
+
+    def test_an_order_without_a_pending_callback_is_left_out_not_counted_as_instant(self):
+        # A payment first seen in a confirmed block skips the state, and old callbacks are pruned.
+        created_at = self.start + timedelta(days=1)
+        order = self.make_sale(created_at + timedelta(minutes=30), created_at=created_at)
+        self.make_callback(order, Transaction.TransactionStatus.COMPLETED, created_at + timedelta(minutes=30))
+        self.make_paid_order(minutes_to_pending=10, minutes_confirming=20)
+
+        stages = statistics.payment_stages(self.period)
+
+        self.assertEqual(stages["covered"], 1)
+        self.assertEqual(stages["waiting_median"], timedelta(minutes=10))
+
+    def test_a_pending_callback_later_than_the_payment_does_not_go_negative(self):
+        created_at = self.start + timedelta(days=1)
+        paid_at = created_at + timedelta(minutes=30)
+        order = self.make_sale(paid_at, created_at=created_at)
+        self.make_callback(order, Transaction.TransactionStatus.PENDING, paid_at + timedelta(minutes=5))
+
+        stages = statistics.payment_stages(self.period)
+
+        self.assertEqual(stages["confirming_median"], timedelta(0))
+
+    def test_no_callbacks_means_no_figures_and_no_division(self):
+        self.make_sale(self.start + timedelta(days=1))
+
+        stages = statistics.payment_stages(self.period)
+
+        self.assertEqual(stages["covered"], 0)
+        self.assertIsNone(stages["waiting_median"])
+        self.assertIsNone(stages["confirming_average"])
 
 
 class RepeatCustomerTests(StatisticsFactoryMixin, TestCase):

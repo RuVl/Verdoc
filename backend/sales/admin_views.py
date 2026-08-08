@@ -82,6 +82,7 @@ def _collect(period: Period) -> dict:
         "stock_age": statistics.stock_age(now),
         "funnel": statistics.funnel(period),
         "time_to_pay": statistics.time_to_pay(period),
+        "stages": statistics.payment_stages(period),
         "customers": statistics.repeat_customers(period),
         "downloads": statistics.download_rate(period),
         "sales_rate_days": statistics.SALES_RATE_DAYS,

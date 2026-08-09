@@ -30,9 +30,18 @@
         "ask": "Enter email address",
         "placeholder": "@:purchases.email.placeholder"
       },
+      "error": {
+        "payment_gateway": "The payment provider did not create an invoice. Try again in a minute."
+      },
       "title": "Order payment"
     },
     "total": "Payment amount"
+  },
+  "errors": {
+    "invalid_email": "Check the e-mail address and try again.",
+    "network": "No connection to the server. Check your internet and try again.",
+    "too_often": "Too many attempts. Wait a minute and try again.",
+    "unavailable": "Something went wrong on our side. Please try again in a moment."
   },
   "navigation": {
     "contacts": "@:routes.contacts",
@@ -57,6 +66,10 @@
   "purchases": {
     "email": {
       "ask": "Enter the email address to receive the files",
+      "error": {
+        "mail_failed": "Could not send the e-mail right now. Please try again in a moment.",
+        "not_found": "There are no paid purchases on this address."
+      },
       "placeholder": "Enter email"
     },
     "page": {

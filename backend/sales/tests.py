@@ -12,6 +12,7 @@ from unittest.mock import patch
 import dns.resolver
 import requests
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core import mail
 from django.core.cache import cache
@@ -206,13 +207,15 @@ class OrderStateTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(product_a.available_count(), 2)
         self.assertEqual(product_b.available_count(), 1)
 
-    def test_refresh_download_tokens_rotates_delivered_only(self):
+    def test_reissuing_tokens_rotates_delivered_units_only(self):
         item = self.make_item(self.make_product(2), quantity=1)
         item.reserve()
         delivered = item.deliver()[0]
         old_token = delivered.token
+        # A reserved unit of the same order has no token to rotate and must stay out of it.
+        self.make_item(self.make_product(1, name="Other"), quantity=1).reserve()
 
-        refreshed = self.order.refresh_download_tokens()
+        refreshed = Allocation.objects.downloadable().of_customer(self.customer).reissue_tokens()
 
         self.assertEqual(len(refreshed), 1)
         self.assertNotEqual(refreshed[0].token, old_token)
@@ -467,6 +470,28 @@ class DownloadCounterTests(ServedFilesMixin, TestCase):
 
         self.assertEqual(self.allocation.download_count, 2)
 
+    def test_a_staff_member_looking_at_the_file_is_not_a_download(self):
+        """The counter answers "did the customer take it", so the owner checking a file must not move it."""
+
+        staff = User.objects.create_user("owner", password="owner", is_staff=True)
+        self.client.force_login(staff)
+
+        self.assertEqual(self.download().status_code, 200)
+
+        self.assertEqual(self.allocation.download_count, 0)
+        self.assertIsNone(self.allocation.first_downloaded_at)
+        self.assertIsNone(self.allocation.last_downloaded_at)
+
+    def test_a_customer_still_counts_after_staff_looked(self):
+        staff = User.objects.create_user("owner", password="owner", is_staff=True)
+        self.client.force_login(staff)
+        self.download()
+
+        self.client.logout()
+        self.download()
+
+        self.assertEqual(self.allocation.download_count, 1)
+
 
 class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
     def setUp(self):
@@ -476,6 +501,7 @@ class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
         self.item.deliver()
         self.order.status = Order.OrderStatus.PAID
         self.order.save(update_fields=["status"])
+        self.order.mark_paid()
 
         self.client = APIClient()
         self.url = reverse("send-links")
@@ -516,6 +542,17 @@ class SendDownloadLinksTests(OrderItemFactoryMixin, TestCase):
         response = self.client.post(self.url, {"email": "nobody@example.com"}, format="json")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_a_paid_order_whose_status_moved_on_is_still_served(self):
+        """A `cancelled duplicate` callback for the abandoned invoice must not hide the purchase."""
+
+        self.order.status = Order.OrderStatus.PENDING
+        self.order.save(update_fields=["status"])
+
+        response = self.client.post(self.url, {"email": self.customer.email}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
 
 
 @override_settings(VALIDATE_EMAIL_MX=False)
@@ -1012,6 +1049,20 @@ class PurchasesPageTests(OrderItemFactoryMixin, TestCase):
 
         self.assertEqual(self.page(uuid.uuid4()).data, expired)
 
+    def test_a_paid_order_whose_status_moved_on_is_still_listed(self):
+        """
+        Switching cryptocurrency leaves a `cancelled duplicate` callback for the invoice the
+        customer walked away from, and that maps back to PENDING. `paid_at` is what was paid.
+        """
+
+        self.order.status = Order.OrderStatus.PENDING
+        self.order.save(update_fields=["status"])
+
+        response = self.page()
+
+        self.assertEqual(len(response.data["orders"]), 1)
+        self.assertEqual(response.data["orders"][0]["id"], self.order.id)
+
     def test_an_expired_file_token_offers_no_url(self):
         Allocation.objects.update(token_expires_at=timezone.now() - timedelta(seconds=1))
 
@@ -1132,6 +1183,7 @@ class MailOutageTests(OrderItemFactoryMixin, TestCase):
         self.item.deliver()
         self.order.status = Order.OrderStatus.PAID
         self.order.save(update_fields=["status"])
+        self.order.mark_paid()
 
         with (
             patch("sales.views.send_purchases_link", side_effect=OSError("smtp is down")),

@@ -35,10 +35,6 @@ export default class TranslatableModel {
         });
     }
 
-    getField(data) {
-        return data;
-    }
-
     getTranslationFields() {
         return []; // List of translation fields overrides by child
     }

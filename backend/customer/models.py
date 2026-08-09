@@ -3,12 +3,13 @@ from typing import TYPE_CHECKING
 
 from django.apps import apps
 from django.conf import settings
-from django.contrib.sites.models import Site
 from django.db import models
 from django.db.models import Exists, OuterRef
 from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+from backend.sites import absolute_url
 
 if TYPE_CHECKING:
     from sales.models import OrderQuerySet
@@ -21,8 +22,9 @@ class CustomerQuerySet(models.QuerySet):
     """
     The one definition of "a buyer", shared by the admin and the broadcast recipient list.
 
-    Paid means `paid_at` is stamped, not `status in PAID_STATUSES`: the stamp is written exactly
-    once by `Order.mark_paid()`, while the status can still move afterwards.
+    Paid means `paid_at` is stamped, not that the status says so: the stamp is written exactly
+    once by `Order.mark_paid()`, while the status can still move afterwards. `OrderQuerySet.paid()`
+    is the same rule seen from the order side.
     """
 
     def _paid_orders(self):
@@ -109,8 +111,7 @@ class Customer(models.Model):
     def get_purchases_url(self, request: HttpRequest | None) -> str:
         """Absolute link to the purchases page - the single link the delivery e-mail carries."""
 
-        domain = Site.objects.get_current(request).domain
-        return f"{settings.SITE_SCHEME}://{domain}{PURCHASES_PATH.format(token=self.access_token)}"
+        return absolute_url(PURCHASES_PATH.format(token=self.access_token), request)
 
     def set_language(self, language: str | None):
         """Remember the site language the customer is using, so the next e-mail speaks it."""

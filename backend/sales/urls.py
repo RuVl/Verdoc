@@ -12,8 +12,8 @@ from .views import (
 
 urlpatterns = [
     path("order/", OrderCreateView.as_view(), name="order-create"),
+    # No trailing slash: this is the URL registered with Plisio, and it is not ours to change.
     path("order/status", PlisioCallbackView.as_view(), name="plisio-callback"),
-    # be aware that path does not end with a slash
     path("send-links/", SendDownloadLinksView.as_view(), name="send-links"),
     path("files/<uuid:uuid>/", DownloadFileView.as_view(), name="download-file"),
     # Purchases page. The token in the path is the whole authentication, see ADR-0004.

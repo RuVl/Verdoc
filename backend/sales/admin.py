@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.db.transaction import atomic
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.module_loading import import_string
 from djmoney.contrib.exchange.models import ExchangeBackend, Rate
@@ -64,16 +65,20 @@ class ReadOnlyAdmin(admin.ModelAdmin):
         return False
 
 
-class OrderItemInline(admin.TabularInline):
+class DeliveredColumnMixin:
+    """How much of an item has actually been handed over - shown both inline and standalone."""
+
+    @admin.display(description="Delivered")
+    def delivered(self, obj: OrderItem):
+        return f"{obj.allocations.filter(state=Allocation.State.DELIVERED).count()} / {obj.quantity}"
+
+
+class OrderItemInline(DeliveredColumnMixin, admin.TabularInline):
     model = OrderItem
     fields = ["product", "product_name", "quantity", "unit_price", "unit_price_usd", "delivered"]
     readonly_fields = fields
     extra = 0
     show_change_link = True
-
-    @admin.display(description="Delivered")
-    def delivered(self, obj: OrderItem):
-        return f"{obj.allocations.filter(state=Allocation.State.DELIVERED).count()} / {obj.quantity}"
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -109,7 +114,7 @@ class OrderAdmin(ReadOnlyAdmin):
 
 
 @admin.register(OrderItem)
-class OrderItemAdmin(ReadOnlyAdmin):
+class OrderItemAdmin(DeliveredColumnMixin, ReadOnlyAdmin):
     list_display = ("order", "product_name", "quantity", "delivered", "order_status")
     list_filter = ("order__status", "product__country")
     search_fields = ("order__customer__email", "product_name")
@@ -118,10 +123,6 @@ class OrderItemAdmin(ReadOnlyAdmin):
     # (OrderItemInline) and is left out here.
     fields = ("order", "product", "product_name", "unit_price", "quantity")
     readonly_fields = fields
-
-    @admin.display(description="Delivered")
-    def delivered(self, obj: OrderItem):
-        return f"{obj.allocations.filter(state=Allocation.State.DELIVERED).count()} / {obj.quantity}"
 
     @admin.display(description="Order status")
     def order_status(self, obj: OrderItem):
@@ -149,23 +150,25 @@ class AllocationAdmin(ReadOnlyAdmin):
     )
     exclude = ("token",)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.request = None
-
-    def get_queryset(self, request):
-        self.request = request
-        return super().get_queryset(request)
-
     @admin.display(boolean=True, description="Downloadable")
     def is_downloadable(self, obj: Allocation):
         return obj.is_token_valid()
 
     @admin.display(description="Download link")
     def download_link(self, obj: Allocation):
+        """
+        The customer's own link, relative.
+
+        Relative rather than absolute so it needs no request: the previous version stashed one on
+        the ModelAdmin, which is a single instance shared by every thread of the process. The admin
+        is served from the same origin as the API, so the href resolves either way, and following
+        it does not move `download_count` - see DownloadFileView.
+        """
+
         if obj.token is None:
             return "-"
-        return format_html("<a href='{url}'>{text}</a>", url=obj.get_download_url(self.request), text=obj.token)
+
+        return format_html("<a href='{url}'>{text}</a>", url=reverse("download-file", args=[obj.token]), text=obj.token)
 
 
 @admin.register(Transaction)

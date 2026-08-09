@@ -1,12 +1,12 @@
 from django.conf import settings
-from django.contrib.sites.models import Site
 from django.core import signing
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.http import HttpRequest
 from django.utils import translation
 from django.utils.html import strip_tags
 from django.utils.translation import gettext as _
 
+from backend.sites import absolute_url
 from customer.models import Customer
 
 from .models import Broadcast
@@ -35,9 +35,8 @@ def make_unsubscribe_url(customer: Customer, request: HttpRequest | None = None)
     """
 
     path = UNSUBSCRIBE_PATH.format(token=make_unsubscribe_token(customer.email), language=customer.language)
-    domain = Site.objects.get_current(request).domain
 
-    return f"{settings.SITE_SCHEME}://{domain}{path}"
+    return absolute_url(path, request)
 
 
 def get_broadcast_recipients():
@@ -83,3 +82,22 @@ def build_broadcast_email(
     message.attach_alternative(html_body, "text/html")
 
     return message
+
+
+def send_broadcast_test(broadcast: Broadcast, request: HttpRequest | None = None):
+    """
+    Mail the broadcast to its test address, one message per language.
+
+    Both versions are what there is to proof-read, and the address is an arbitrary inbox rather
+    than a customer - hence the unsaved stand-in and no delivery rows. Raises whatever the mail
+    backend raises: the two callers (the admin action and `broadcast --test`) each report it their
+    own way. Checking that `test_email` is set belongs to them too - only they know how to complain.
+    """
+
+    connection = get_connection()  # opened lazily on first send()
+    try:
+        for language, _label in settings.LANGUAGES:
+            recipient = Customer(email=broadcast.test_email, language=language)
+            build_broadcast_email(connection, broadcast, recipient, request).send()
+    finally:
+        connection.close()

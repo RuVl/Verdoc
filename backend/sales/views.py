@@ -206,7 +206,7 @@ class PlisioCallbackView(APIView):
         return txn
 
 
-def serve_allocation(allocation: Allocation):
+def serve_allocation(allocation: Allocation, count: bool = True):
     """Stream the file behind an allocation, or 404 - never say which of the checks failed."""
 
     if not allocation.is_token_valid():
@@ -219,8 +219,9 @@ def serve_allocation(allocation: Allocation):
     # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with` here
     # would close the file before a single byte went out.
     response = FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)  # noqa: SIM115
-    # Counted only once the file is actually open, so a 404 above never looks like a download.
-    allocation.record_download()
+    if count:
+        # Counted only once the file is actually open, so a 404 above never looks like a download.
+        allocation.record_download()
     return response
 
 
@@ -237,7 +238,14 @@ class DownloadFileView(views.View):
         except (Allocation.DoesNotExist, ValidationError, ValueError):
             return HttpResponseNotFound()
 
-        return serve_allocation(allocation)
+        # "Did the customer take the file" is what the counter answers, so the owner checking a file
+        # from the admin must not move it. The check is on the session, not on the link: a staff
+        # member who opens a real customer link while logged into the admin is not counted either.
+        staff = request.user.is_authenticated and request.user.is_staff
+        if staff:
+            logger.info(f"Staff download of allocation {allocation.id}, not counted")
+
+        return serve_allocation(allocation, count=not staff)
 
 
 class SendDownloadLinksView(APIView):
@@ -249,9 +257,9 @@ class SendDownloadLinksView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        user_email = serializer.validated_data["email"]
-        customer = Customer.objects.filter(email=user_email).first()
-        orders = list(customer.orders.filter(status__in=Order.PAID_STATUSES)) if customer else []
+        email = serializer.validated_data["email"]
+        customer = Customer.objects.filter(email=email).first()
+        orders = list(customer.orders.paid()) if customer else []
 
         if not orders:
             return HttpResponseNotFound()
@@ -269,7 +277,7 @@ class SendDownloadLinksView(APIView):
                 # URL loses it here. File tokens are left alone - the page refreshes them itself.
                 customer.rotate_access_token()
         except ValueError as e:
-            logger.warning(f"Cannot re-issue links for {user_email}: {e}")
+            logger.warning(f"Cannot re-issue links for {email}: {e}")
             return Response({"detail": "Order processing conflict"}, status=status.HTTP_409_CONFLICT)
 
         try:
@@ -277,7 +285,7 @@ class SendDownloadLinksView(APIView):
         except Exception as e:
             # The token was already rotated, so the previous link is gone either way - the customer
             # has to be told to try again rather than left staring at a success message.
-            logger.error(f"Cannot mail the purchases link to {user_email}: {e}")
+            logger.error(f"Cannot mail the purchases link to {email}: {e}")
             return Response({"detail": "Cannot send the e-mail right now"}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response({"detail": "The link is sent"}, status=status.HTTP_200_OK)
@@ -308,7 +316,7 @@ class PurchasesView(APIView):
             return Response({"detail": PURCHASES_GONE}, status=status.HTTP_404_NOT_FOUND)
 
         orders = (
-            customer.orders.filter(status__in=Order.PAID_STATUSES)
+            customer.orders.paid()
             .prefetch_related(
                 "items",
                 Prefetch("items__allocations", queryset=Allocation.objects.downloadable()),

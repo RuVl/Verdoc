@@ -1,13 +1,11 @@
 import logging
 import time
 
-from django.conf import settings
 from django.core.mail import get_connection
 from django.core.management.base import BaseCommand, CommandError
 
-from customer.models import Customer
 from mailing.models import Broadcast
-from mailing.services import build_broadcast_email, get_broadcast_recipients
+from mailing.services import build_broadcast_email, get_broadcast_recipients, send_broadcast_test
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +46,7 @@ class Command(BaseCommand):
                 self._send_one(broadcast, dry_run=dry_run)
 
     def _send_test(self, broadcast: Broadcast, dry_run: bool):
-        """
-        A test run never touches the delivery ledger - the address need not be a customer.
-
-        One message per language: both versions are what there is to proof-read.
-        """
+        """A test run never touches the delivery ledger - the address need not be a customer."""
 
         if not broadcast.test_email:
             raise CommandError(f"Broadcast {broadcast.id} has no test_email.")
@@ -61,13 +55,7 @@ class Command(BaseCommand):
             self.stdout.write(f"[dry-run] Broadcast {broadcast.id}: test to {broadcast.test_email}")
             return
 
-        connection = get_connection()
-        try:
-            for language, _label in settings.LANGUAGES:
-                recipient = Customer(email=broadcast.test_email, language=language)
-                build_broadcast_email(connection, broadcast, recipient).send()
-        finally:
-            connection.close()
+        send_broadcast_test(broadcast)
 
         self.stdout.write(self.style.SUCCESS(f"Broadcast {broadcast.id}: test sent to {broadcast.test_email}"))
 

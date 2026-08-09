@@ -4,7 +4,6 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.contrib.sites.models import Site
 from django.db import models
 from django.db.models import Count, F, ProtectedError, Q, UniqueConstraint, Value
 from django.db.models.functions import Coalesce
@@ -15,6 +14,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 
+from backend.sites import absolute_url
 from catalog.models import Product, StockItem
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,18 @@ def protect_held_units(collector, field, sub_objs, using):
 
 
 class OrderQuerySet(models.QuerySet):
+    def paid(self) -> "OrderQuerySet":
+        """
+        Orders the customer has actually paid for - the only definition, see `CustomerQuerySet`.
+
+        Keyed off `paid_at` and not off `status`: the stamp is written exactly once by
+        `mark_paid()`, while the status keeps moving with every callback. Plisio reports the
+        invoice a customer abandoned when switching coin as `cancelled duplicate`, which maps back
+        to PENDING - filtering by status would drop a delivered order off the purchases page.
+        """
+
+        return self.filter(paid_at__isnull=False)
+
     def reusable(self, email: str, items: list[dict]) -> "Order | None":
         """
         A live invoice of this customer for exactly this cart, or None.
@@ -93,8 +105,6 @@ class Order(models.Model):
         EXPIRED = "EXPIRED", "Expired"
         ERROR = "ERROR", "Error"
         CANCELLED = "CANCELLED", "Cancelled"
-
-    PAID_STATUSES = (OrderStatus.PAID, OrderStatus.OVERPAID)
 
     # How long a reservation lives. The invoice Plisio mints expires in 60 minutes, so an order
     # gets that from its last move plus ten minutes of grace from creation. Read these instead of
@@ -171,11 +181,6 @@ class Order(models.Model):
             allocations.extend(order_item.release())
 
         return allocations
-
-    def refresh_download_tokens(self) -> list["Allocation"]:
-        """Issue new tokens for everything already delivered, resetting DOWNLOAD_TTL."""
-
-        return Allocation.objects.filter(order_item__order=self).downloadable().reissue_tokens()
 
 
 class OrderItem(models.Model):
@@ -418,8 +423,7 @@ class Allocation(models.Model):
         since it travelled in the same message as the token.
         """
 
-        relative_path = reverse("download-file", args=[self.token])
-        return f"{settings.SITE_SCHEME}://{Site.objects.get_current(request).domain}{relative_path}"
+        return absolute_url(reverse("download-file", args=[self.token]), request)
 
 
 class Transaction(models.Model):

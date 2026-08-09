@@ -51,10 +51,6 @@ INSTALLED_APPS = [
     "customer",
     "mailing",
     "sales",
-    # Legacy apps: kept read-only for their migrations until the data transfer is verified on prod.
-    # They must stay after the new apps so that same-named management commands resolve to the new ones.
-    "passport",
-    "order",
 ]
 
 MIDDLEWARE = [
@@ -89,7 +85,6 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 
 # Site settings
-# SITE_ID = 1
 # Used to build absolute URLs (download links, the purchases page link in e-mails).
 # Overridable so a local run can hand out http:// links that actually open.
 SITE_SCHEME = env("SITE_SCHEME", default="https")
@@ -183,7 +178,6 @@ SERIALIZATION_MODULES = {
 
 # Internationalization
 USE_I18N = True
-USE_L10N = True
 LANGUAGE_CODE = "en"
 LANGUAGES = (
     ("en", "English"),
@@ -202,7 +196,6 @@ TIME_ZONE = "UTC"
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
-STATICFILES_DIRS = []  # List of non-standard paths
 
 # Currency settings
 CURRENCIES = ("USD", "RUB")

@@ -53,14 +53,8 @@ class StockItemInlineFormSet(BaseInlineFormSet):
                 raise ValidationError(f"{unit.file.name} is held by an order - it cannot be deleted")
 
 
-class StockItemInline(admin.TabularInline):
-    model = StockItem
-    formset = StockItemInlineFormSet
-    fields = ["file", "state", "created_at"]
-    # created_at is editable=False, so it can only appear here as a read-only column.
-    readonly_fields = ["state", "created_at"]
-    extra = 0
-    show_change_link = True
+class StockItemStateMixin:
+    """The "who holds this unit" column, shown both on the Product page and standalone."""
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related(active_allocations())
@@ -68,6 +62,16 @@ class StockItemInline(admin.TabularInline):
     @admin.display(description="State")
     def state(self, obj: StockItem):
         return stock_item_state(obj)
+
+
+class StockItemInline(StockItemStateMixin, admin.TabularInline):
+    model = StockItem
+    formset = StockItemInlineFormSet
+    fields = ["file", "state", "created_at"]
+    # created_at is editable=False, so it can only appear here as a read-only column.
+    readonly_fields = ["state", "created_at"]
+    extra = 0
+    show_change_link = True
 
 
 @admin.register(Product)
@@ -148,20 +152,13 @@ class AvailabilityFilter(admin.SimpleListFilter):
 
 
 @admin.register(StockItem)
-class StockItemAdmin(admin.ModelAdmin):
+class StockItemAdmin(StockItemStateMixin, admin.ModelAdmin):
     list_display = ["id", "product", "file", "state", "created_at"]
     list_filter = [AvailabilityFilter, "product__country", "created_at"]
     search_fields = ["product__name", "file"]
     list_select_related = ["product"]
     date_hierarchy = "created_at"
     readonly_fields = ["created_at"]
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related(active_allocations())
-
-    @admin.display(description="State")
-    def state(self, obj: StockItem):
-        return stock_item_state(obj)
 
     def has_delete_permission(self, request, obj=None):
         # A unit somebody holds is part of an order - deleting it would break that order's history.

@@ -12,8 +12,9 @@
 | `sales` | `Order`, `OrderItem`, `Allocation`, `Transaction`, `PaymentCallbackLog` | `order` |
 | `mailing` | `Broadcast`, `BroadcastDelivery` | коммит `883990c` удалённой ветки `feature/add-broadcasting` |
 
-Исчезают: `DownloadLink`, `Unsubscribe`, `Passport.quantity`, `OrderItem.is_reserved`,
-`passport/signals.py`, команда `resync_quantity`.
+Исчезли: `DownloadLink`, `Unsubscribe`, `Passport.quantity`, `OrderItem.is_reserved`,
+`passport/signals.py`, команда `resync_quantity`. Сами приложения `passport` и `order` вместе с
+их таблицами дропнуты в R5 — см. [`r5.md`](./r5.md).
 
 ## Схема (DBML)
 

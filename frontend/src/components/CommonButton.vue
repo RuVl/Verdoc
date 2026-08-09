@@ -10,7 +10,7 @@ defineProps({
                class="cmn-btn">
     <slot/>
   </router-link>
-  <button v-else :class="{ disabled: disabled }" class="cmn-btn">
+  <button v-else :class="{ disabled: disabled }" :disabled="disabled" class="cmn-btn">
     <slot/>
   </button>
 </template>

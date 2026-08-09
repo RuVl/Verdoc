@@ -1,0 +1,70 @@
+// Проект: Verdoc Database Schema
+// Описание: Система продажи цифровых копий документов
+
+// --- App: Passport ---
+
+Table passport_country {
+  id integer [primary key]
+    name varchar [note: "Название страны"]
+    code varchar [null, note: "ISO код для иконки флага"]
+}
+
+Table passport_passport {
+  id integer [primary key]
+    name varchar
+    price_currency varchar
+    price decimal
+    quantity integer [note: "Количество в наличии (stock)"]
+    country_id integer [ref: > passport_country.id]
+}
+
+Table passport_passportfile {
+  id integer [primary key]
+    file_path varchar [unique]
+    status varchar [note: "IN_STOCK, RESERVED, SOLD"]
+    passport_id integer [ref: > passport_passport.id]
+}
+
+// --- App: Order ---
+
+Table order_order {
+  id integer [primary key]
+    user_email varchar
+    status varchar [note: "PENDING, PAID, OVERPAID, EXPIRED, ERROR, CANCELLED"]
+    total_price_currency varchar
+    total_price decimal
+    created_at datetime
+    updated_at datetime
+}
+
+Table order_orderitem {
+  id integer [primary key]
+    order_id integer [ref: > order_order.id]
+    passport_id integer [ref: > passport_passport.id]
+    quantity integer
+    is_reserved boolean
+}
+
+Table order_downloadlink {
+  id integer [primary key]
+    order_item_id integer [ref: > order_orderitem.id]
+    passport_file_id integer [unique, ref: - passport_passportfile.id]
+    uuid uuid [unique]
+    updated_at datetime [note: "Ссылка живет 24 часа"]
+}
+
+Table order_transaction {
+  id integer [primary key]
+    order_id integer [unique, ref: - order_order.id]
+    txn_id varchar [null, note: "ID из платежного шлюза Plisio"]
+    amount decimal
+    currency varchar
+    source_price_currency varchar
+    source_price decimal
+    status varchar [note: "new, pending, completed, expired, etc."]
+    confirmations integer
+    created_at datetime
+    updated_at datetime
+    comment varchar
+}
+

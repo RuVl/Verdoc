@@ -6,4 +6,3 @@ bun.lock
 package-lock.json
 
 README.md
-Dockerfile.dev

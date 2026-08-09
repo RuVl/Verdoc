@@ -1,0 +1,320 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Statistics | {{ site_title }}{% endblock %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .stats-period { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .stats-period .preset { padding: 5px 12px; border: 1px solid var(--border-color); border-radius: 4px;
+    color: var(--body-fg); text-decoration: none; }
+  .stats-period .preset.current { background: var(--selected-bg); font-weight: 600; }
+  .stats-period form { display: flex; align-items: center; gap: 6px; margin: 0; }
+  .stats-period .note { color: var(--body-quiet-color); font-size: 12px; margin-left: auto; }
+
+  .stats-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;
+    margin-bottom: 25px; }
+  .stats-card { padding: 15px; border: 1px solid var(--hairline-color); border-radius: 6px;
+    background: var(--darkened-bg); }
+  .stats-card .label { color: var(--body-quiet-color); font-size: 12px; text-transform: uppercase; }
+  .stats-card .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+  .stats-card .hint { color: var(--body-quiet-color); font-size: 12px; margin-top: 4px; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 25px; }
+  .stats-block { min-width: 0; }
+  /* Five columns next to long product names do not survive half a row - this one takes the width. */
+  .stats-block.wide { grid-column: 1 / -1; }
+  .stats-block h2 { font-size: 15px; margin: 0 0 10px; }
+  .stats-block table { width: 100%; }
+  .stats-block .scroll { overflow-x: auto; }
+  .stats-chart { height: 320px; margin-bottom: 25px; }
+  .stats-empty { padding: 30px; text-align: center; color: var(--body-quiet-color);
+    border: 1px dashed var(--border-color); border-radius: 6px; }
+  .num { text-align: right; white-space: nowrap; }
+  .low { color: var(--error-fg); font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; Statistics</div>
+{% endblock %}
+
+{% block content %}
+<h1>Sales dashboard</h1>
+
+<div class="stats-period">
+  {% for value, label in presets %}
+    <a class="preset {% if period.preset == value %}current{% endif %}" href="?preset={{ value }}">{{ label }}</a>
+  {% endfor %}
+  <form method="get">
+    <input type="date" name="from" value="{{ period.start|date:'Y-m-d' }}" aria-label="From">
+    <input type="date" name="to" value="{{ period.last_day|date:'Y-m-d' }}" aria-label="To">
+    <button type="submit" class="button">Apply</button>
+  </form>
+  <a class="button" href="{% url 'admin:stats-export' %}{% if query %}?{{ query }}{% endif %}">Export CSV</a>
+  <span class="note">All dates are UTC</span>
+</div>
+
+<div class="stats-cards">
+  <div class="stats-card">
+    <div class="label">Gross</div>
+    <div class="value">${{ totals.gross|floatformat:2 }}</div>
+    <div class="hint">price snapshots, {{ totals.orders }} paid order{{ totals.orders|pluralize }}</div>
+  </div>
+  <div class="stats-card">
+    <div class="label">Plisio commission</div>
+    <div class="value">${{ totals.commission|floatformat:2 }}</div>
+    <div class="hint">{{ totals.commission_share|floatformat:1 }}% of gross</div>
+  </div>
+  <div class="stats-card">
+    <div class="label">Net</div>
+    <div class="value">${{ totals.net|floatformat:2 }}</div>
+    <div class="hint">gross minus commission</div>
+  </div>
+  <div class="stats-card">
+    <div class="label">Average order</div>
+    <div class="value">${{ totals.average_order|floatformat:2 }}</div>
+  </div>
+  <div class="stats-card">
+    <div class="label">Conversion</div>
+    <div class="value">{{ funnel.conversion|floatformat:1 }}%</div>
+    <div class="hint">{{ funnel.paid }} of {{ funnel.created }} checkouts</div>
+  </div>
+</div>
+
+{% if has_sales %}
+  <div class="stats-chart"><canvas id="revenue-chart"></canvas></div>
+{% else %}
+  <p class="stats-empty">No sales in this period.</p>
+{% endif %}
+
+<div class="stats-grid">
+  <div class="stats-block wide">
+    <h2>Stock forecast</h2>
+    <p class="hint">Right now, at the sales rate of the last {{ sales_rate_days }} days - not the period above.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Product</th><th>Country</th><th class="num">Available</th>
+          <th class="num">Sold/{{ sales_rate_days }}d</th><th class="num">Days left</th></tr></thead>
+        <tbody>
+        {# Sorted by urgency: sold out first, then closest to running out, then the never-selling tail. #}
+        {% for row in stock_page %}
+          <tr>
+            <td>{{ row.product }}</td>
+            <td>{{ row.country }}</td>
+            <td class="num {% if not row.available %}low{% endif %}">{{ row.available }}</td>
+            <td class="num">{{ row.sold }}</td>
+            {# `is not None` on purpose: zero days left is "sold out", not "never runs out". #}
+            <td class="num {% if row.days_left is not None and row.days_left < 14 %}low{% endif %}">
+              {% if row.days_left is not None %}{{ row.days_left|floatformat:0 }}{% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5">The catalogue is empty.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {# Same shape as admin/pagination.html, so the admin's own .paginator styles apply as they are. #}
+    <p class="paginator">
+      {% if stock_page.paginator.num_pages > 1 %}
+        {% for item in stock_page_numbers %}
+          {% if item.number == stock_ellipsis %}
+            {{ stock_ellipsis }}
+          {% elif item.number == stock_page.number %}
+            <span class="this-page">{{ item.number }}</span>
+          {% else %}
+            <a href="{{ item.url }}"{% if item.number == stock_page.paginator.num_pages %} class="end"{% endif %}>{{ item.number }}</a>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      {{ stock_page.paginator.count }} product{{ stock_page.paginator.count|pluralize }}, closest to running out first
+    </p>
+    <p class="hint">
+      {# The period is glued to {% endif %} on purpose: a line break here renders as a space before it. #}
+      {{ stock_age.available }} unit{{ stock_age.available|pluralize }} free{% if stock_age.oldest_days %},
+        oldest sitting {{ stock_age.oldest_days }} day{{ stock_age.oldest_days|pluralize }}{% endif %}.
+      Units that predate the counter carry the date it was deployed, so that age is a floor.
+    </p>
+  </div>
+
+  <div class="stats-block">
+    <h2>Top products</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Product</th><th class="num">Units</th><th class="num">Gross</th></tr></thead>
+        <tbody>
+        {% for row in top_products %}
+          <tr><td>{{ row.product_name }}</td><td class="num">{{ row.units }}</td>
+            <td class="num">${{ row.revenue|floatformat:2 }}</td></tr>
+        {% empty %}
+          <tr><td colspan="3">Nothing sold in this period.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <h2 style="margin-top:20px">Top countries</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Country</th><th class="num">Units</th><th class="num">Gross</th></tr></thead>
+        <tbody>
+        {% for row in top_countries %}
+          <tr><td>{{ row.product__country__name }}</td><td class="num">{{ row.units }}</td>
+            <td class="num">${{ row.revenue|floatformat:2 }}</td></tr>
+        {% empty %}
+          <tr><td colspan="3">Nothing sold in this period.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="stats-block">
+    <h2>Checkouts</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Status</th><th class="num">Orders</th></tr></thead>
+        <tbody>
+        {% for row in funnel.by_status %}
+          <tr><td>{{ row.status }}</td><td class="num">{{ row.count }}</td></tr>
+        {% empty %}
+          <tr><td colspan="2">No checkouts in this period.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">
+      {{ funnel.leads }} new customer{{ funnel.leads|pluralize }} never paid for anything.
+      Time to pay: median {{ time_to_pay.median|default:"&mdash;" }},
+      average {{ time_to_pay.average|default:"&mdash;" }}.
+      {{ time_to_pay.late }} order{{ time_to_pay.late|pluralize }}
+      ({{ time_to_pay.late_share|floatformat:1 }}%) arrived after the reservation had expired.
+    </p>
+    {% if stages.covered %}
+      <p class="hint">
+        Of {{ stages.covered }} order{{ stages.covered|pluralize }} with a pending callback, the
+        invoice waited for the payment (new &rarr; pending) median {{ stages.waiting_median }},
+        average {{ stages.waiting_average }}, then the chain confirmed it (pending &rarr; completed)
+        median {{ stages.confirming_median }}, average {{ stages.confirming_average }}.
+        Orders whose pending callback never came or was already pruned are left out.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="stats-block">
+    <h2>Customers</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>E-mail</th><th class="num">Paid orders</th><th class="num">Spent</th></tr></thead>
+        <tbody>
+        {% for row in customers.top %}
+          <tr><td>{{ row.email }}</td><td class="num">{{ row.paid_orders }}</td>
+            <td class="num">${{ row.spent|floatformat:2 }}</td></tr>
+        {% empty %}
+          <tr><td colspan="3">Nobody has paid yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">
+      {{ customers.returning }} of {{ customers.total }} buyers came back
+      ({{ customers.returning_share|floatformat:1 }}%), average lifetime value
+      ${{ customers.average_ltv|floatformat:2 }}. {{ customers.active }} bought in this period.
+    </p>
+
+    <h2 style="margin-top:20px">Downloads</h2>
+    <p class="hint">
+      {{ downloads.taken }} of {{ downloads.total }} files delivered in this period were collected
+      ({{ downloads.share|floatformat:1 }}%), {{ downloads.downloads }} download{{ downloads.downloads|pluralize }}
+      in total. Counted only since the release that added the counter.
+    </p>
+  </div>
+</div>
+
+{% if has_sales %}
+  {{ chart|json_script:"revenue-data" }}
+  <script src="{% static 'sales/chart.umd.min.js' %}"></script>
+  <script>
+      // Chart.js 4.5.1, MIT - vendored, no CDN. Update by replacing sales/static/sales/chart.umd.min.js
+      // from https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js
+      (function () {
+          var data = JSON.parse(document.getElementById('revenue-data').textContent);
+          var css = getComputedStyle(document.body);
+          // Follow the admin's own palette, so the theme toggle carries the chart with it.
+          Chart.defaults.color = css.getPropertyValue('--body-fg');
+          Chart.defaults.borderColor = css.getPropertyValue('--hairline-color');
+          // --link-fg over --primary: the dark theme's primary is a near-background navy that
+          // leaves the line and its points barely visible.
+          var accent = (css.getPropertyValue('--link-fg') || css.getPropertyValue('--primary')).trim();
+
+          // The text colour, not an accent: it is the one value that stays readable in both
+          // themes, and a dashed line in it reads as secondary next to the coloured one.
+          var trendColor = (css.getPropertyValue('--body-fg') || '#666').trim();
+          var pageBg = (css.getPropertyValue('--body-bg') || '#fff').trim();
+
+          new Chart(document.getElementById('revenue-chart'), {
+              type: 'line',
+              data: {
+                  labels: data.labels,
+                  datasets: [
+                      {
+                          label: 'Gross, USD',
+                          data: data.values,
+                          borderColor: accent,
+                          backgroundColor: accent,
+                          fill: false,
+                          tension: 0.2,
+                          borderWidth: 2,
+                          // A dead day is a dot on the zero line and nothing else - drawing it
+                          // just speckles the axis. The line still passes through the day.
+                          pointRadius: function (ctx) { return ctx.raw > 0 ? 3.5 : 0; },
+                          pointHoverRadius: 6,
+                          pointBorderColor: pageBg,
+                          pointBorderWidth: 1.5,
+                      },
+                      {
+                          label: '{{ trend_window }}-day average, USD',
+                          data: data.trend,
+                          borderColor: trendColor,
+                          backgroundColor: trendColor,
+                          fill: false,
+                          tension: 0.3,
+                          borderWidth: 2,
+                          borderDash: [6, 4],
+                          pointRadius: 0,
+                          pointHoverRadius: 0,
+                          // The first days of the window carry null; leave the gap rather than
+                          // joining the line across days it has no average for.
+                          spanGaps: false,
+                      },
+                  ],
+              },
+              options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  // Whole-column hit testing: a year of points is far too small to click exactly.
+                  interaction: {mode: 'index', intersect: false},
+                  scales: {
+                      y: {beginAtZero: true, ticks: {callback: function (v) { return '$' + v; }}},
+                      // A year's worth of dates cannot all be written out; a dozen upright
+                      // labels are readable where ninety slanted ones are a smear.
+                      x: {grid: {display: false}, ticks: {maxTicksLimit: 12, maxRotation: 0, autoSkip: true}},
+                  },
+                  plugins: {
+                      legend: {display: true, labels: {usePointStyle: true, boxHeight: 6}},
+                      tooltip: {callbacks: {footer: function () { return 'Click to see the orders'; }}},
+                  },
+                  // A point opens the orders paid that day, filtered on the admin's own changelist.
+                  onClick: function (event, elements) {
+                      if (elements.length) { window.location = data.links[elements[0].index]; }
+                  },
+                  onHover: function (event, elements) {
+                      event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                  },
+              },
+          });
+      })();
+  </script>
+{% endif %}
+{% endblock %}

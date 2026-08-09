@@ -1,7 +1,8 @@
 <script setup>
-import {reactive} from "vue";
-import Passport from "@/models/Passport.js";
+import {reactive, ref} from "vue";
+import Product from "@/models/Product.js";
 import {useOrderStore} from "@/stores/order.js";
+import {errorMessageKey} from "@/api/errors.js";
 import ModalWindow from "@/components/ModalWindow.vue";
 import PrettyInput from "@/components/PrettyInput.vue";
 import CommonButton from "@/components/CommonButton.vue";
@@ -15,19 +16,33 @@ const payment_form = reactive({
 })
 
 const props = defineProps({
-  passport: Passport
+  product: Product
 });
 
 const orderStore = useOrderStore();
+const error = ref(null);
+const sending = ref(false);
 
-function buy() {
+async function buy() {
   const payment_method = orderStore.payment_methods[payment_form.method];
   if (payment_method.name !== 'plisio') return;
 
-  if (props.passport) orderStore.buyPassport(props.passport, payment_form.email);
-  else orderStore.makeOrder(payment_form.email);
+  error.value = null;
+  sending.value = true;
+  try {
+    if (props.product) await orderStore.buyProduct(props.product, payment_form.email);
+    else await orderStore.makeOrder(payment_form.email);
 
-  is_opened.value = false;
+    // Closed only on success: on failure the customer stays on the form they can retry from.
+    is_opened.value = false;
+  } catch (e) {
+    // 502 means Plisio refused the invoice. Its own message is English-only and technical, so the
+    // customer gets our text and the provider code goes to the console for us.
+    error.value = errorMessageKey(e, {502: 'cart_view.modal_window.error.payment_gateway'});
+    console.error('Checkout failed:', e.response?.data?.provider_code ?? '', e);
+  } finally {
+    sending.value = false;
+  }
 }
 </script>
 
@@ -38,7 +53,7 @@ function buy() {
       <form class="payment-form" @submit.prevent="buy">
         {{ $t('cart_view.modal_window.email.ask') }}
         <pretty-input v-model="payment_form.email" :placeholder="$t('cart_view.modal_window.email.placeholder')"
-                      name="user_email" type="email"/>
+                      name="email" type="email"/>
         {{ $t('cart_view.modal_window.choose_method') }}
         <CustomSelect v-model:selected="payment_form.method" :elements="orderStore.payment_methods"
                       class="payment-method">
@@ -50,7 +65,10 @@ function buy() {
             <input :value="method.name" name="payment-method" type="hidden">
           </template>
         </CustomSelect>
-        <CommonButton class="submit-btn" type="submit">{{ $t('buttons.payment_method') }}</CommonButton>
+        <p v-if="error" class="form-error">{{ $t(error) }}</p>
+        <CommonButton :disabled="sending" class="submit-btn" type="submit">
+          {{ $t('buttons.payment_method') }}
+        </CommonButton>
       </form>
     </template>
   </ModalWindow>
@@ -82,6 +100,15 @@ function buy() {
     .option-icon {
       height: 30px;
     }
+  }
+
+  .form-error {
+    color: var(--red-color);
+    text-align: center;
+    margin: 0;
+    // align-items: center sizes a flex item to its content, so without this the message runs out
+    // of the modal instead of wrapping inside it.
+    max-width: 100%;
   }
 
   .submit-btn {

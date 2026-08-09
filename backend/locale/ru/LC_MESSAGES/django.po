@@ -1,0 +1,164 @@
+# Russian copy for the Verdoc backend.
+#
+# Only strings that reach a customer are translated here - the e-mails. Model verbose names and
+# choice labels are picked up by makemessages too, but they are left empty on purpose: they are
+# only ever shown in the admin, which runs in the site language.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: verdoc-backend\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 14:32+0000\n"
+"PO-Revision-Date: 2026-08-06 15:49+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || "
+"(n%100>=11 && n%100<=14)? 2 : 3);\n"
+
+#: catalog/models.py:34
+msgid "Country"
+msgstr ""
+
+#: catalog/models.py:35
+msgid "Countries"
+msgstr ""
+
+#: catalog/models.py:92
+msgid "Product"
+msgstr ""
+
+#: catalog/models.py:93
+msgid "Products"
+msgstr ""
+
+#: catalog/models.py:129
+msgid "Stock item"
+msgstr ""
+
+#: catalog/models.py:130
+msgid "Stock items"
+msgstr ""
+
+#: customer/models.py:82
+msgid "Customer"
+msgstr ""
+
+#: customer/models.py:83
+msgid "Customers"
+msgstr ""
+
+#: mailing/models.py:39
+msgid "Broadcast"
+msgstr ""
+
+#: mailing/models.py:40
+msgid "Broadcasts"
+msgstr ""
+
+#: mailing/models.py:92
+msgid "Pending"
+msgstr ""
+
+#: mailing/models.py:93
+msgid "Sent"
+msgstr ""
+
+#: mailing/models.py:94
+msgid "Failed"
+msgstr ""
+
+#: mailing/models.py:108
+msgid "Broadcast delivery"
+msgstr ""
+
+#: mailing/models.py:109
+msgid "Broadcast deliveries"
+msgstr ""
+
+#: mailing/services.py:65
+msgid "Unsubscribe from this mailing list"
+msgstr "Отписаться от рассылки"
+
+#: mailing/templates/admin/mailing/broadcast/submit_line.html:19
+msgid "Close"
+msgstr ""
+
+#: mailing/templates/admin/mailing/broadcast/submit_line.html:23
+msgid "Delete"
+msgstr ""
+
+#: sales/models.py:122
+msgid "Order"
+msgstr ""
+
+#: sales/models.py:123
+msgid "Orders"
+msgstr ""
+
+#: sales/models.py:211
+msgid "Order item"
+msgstr ""
+
+#: sales/models.py:212
+msgid "Order items"
+msgstr ""
+
+#: sales/models.py:348
+msgid "Reserved"
+msgstr ""
+
+#: sales/models.py:349
+msgid "Delivered"
+msgstr ""
+
+#: sales/models.py:350
+msgid "Released"
+msgstr ""
+
+#: sales/models.py:372
+msgid "Allocation"
+msgstr ""
+
+#: sales/models.py:373
+msgid "Allocations"
+msgstr ""
+
+#: sales/models.py:495
+msgid "Transaction"
+msgstr ""
+
+#: sales/models.py:496
+msgid "Transactions"
+msgstr ""
+
+#: sales/models.py:522
+msgid "Payment callback"
+msgstr ""
+
+#: sales/models.py:523
+msgid "Payment callbacks"
+msgstr ""
+
+#: sales/utils.py:26
+msgid "Your purchases are available at:"
+msgstr "Ваши покупки доступны по ссылке:"
+
+#: sales/utils.py:29
+msgid ""
+"The link is valid for 24 hours and opens ALL of your purchases - do not "
+"forward it to anyone. If it has expired, request a new one through the form "
+"on the site.\n"
+"Links to individual files are refreshed on the purchases page itself."
+msgstr ""
+"Ссылка действует 24 часа и открывает ВСЕ ваши покупки - не пересылайте её "
+"никому. Если срок истёк, запросите новую через форму на сайте.\n"
+"Ссылки на отдельные файлы обновляются прямо на странице покупок."
+
+#: sales/utils.py:34
+msgid "Your order is complete"
+msgstr "Ваш заказ выполнен"

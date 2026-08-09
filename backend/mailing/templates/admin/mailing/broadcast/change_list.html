@@ -1,0 +1,63 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% comment %} Rename the "Add" button and show a short help banner. {% endcomment %}
+
+{% block object-tools-items %}
+{% if has_add_permission %}
+<li>
+    {% url cl.opts|admin_urlname:'add' as add_url %}
+    <a href="{% add_preserved_filters add_url is_popup to_field %}" class="addlink">Compose broadcast</a>
+</li>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% comment %}
+clear: both drops the banner below the floated "Compose broadcast" tools so they don't overlap.
+Admin CSS vars (--darkened-bg / --body-fg / --border-color) follow the light/dark theme.
+{% endcomment %}
+<p class="help" style="clear: both; margin: 0 0 12px; padding: 10px 12px;
+     background: var(--darkened-bg); color: var(--body-fg);
+     border: 1px solid var(--border-color); border-radius: 4px;">
+    Create a draft, run <b>Send test email</b> to preview, then <b>Queue for sending</b>
+    (button on the form, or the bulk action in this list).
+    A cron job sends the queue about every 15 minutes to all paid buyers (minus unsubscribes).
+</p>
+<style>
+    ul.object-tools {
+        margin: -108px 0 80px 0;
+    }
+
+    @media (min-width: 1448px) {
+        ul.object-tools {
+            margin: -93px 0 65px 0;
+        }
+    }
+
+    @media (max-width: 896px) {
+        ul.object-tools {
+            margin: -123px 0 95px 0;
+        }
+    }
+
+    @media (max-width: 767px) {
+        ul.object-tools {
+            margin: -112px 0 80px calc(100vw - 200px);
+        }
+    }
+
+    @media (max-width: 587px) {
+        ul.object-tools {
+            margin: -127px 0 95px calc(100vw - 200px);
+        }
+    }
+
+    @media (max-width: 440px) {
+        ul.object-tools {
+            margin: 0 0 15px;
+        }
+    }
+</style>
+{{ block.super }}
+{% endblock %}

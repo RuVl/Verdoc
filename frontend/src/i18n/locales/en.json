@@ -4,12 +4,21 @@
     "buy": "Buy",
     "buy_now": "Buy now",
     "cart": "@:routes.cart",
+    "copied": "Copied",
+    "copy_link": "Copy link",
     "delete": "Delete",
+    "download": "Download",
     "go_back_home": "Go back home",
     "payment_method": "Choose a payment method",
+    "refresh_all_links": "Refresh all links",
+    "refresh_link": "Refresh link",
+    "request_new_link": "Request a new link",
+    "retry": "Try again",
     "send_links": "Send links",
+    "stay_subscribed": "Keep my subscription",
     "support": "Store support",
-    "to_cart": "@:buttons.add2cart"
+    "to_cart": "@:buttons.add2cart",
+    "unsubscribe": "Unsubscribe"
   },
   "cart_view": {
     "cost": "Cost",
@@ -21,9 +30,18 @@
         "ask": "Enter email address",
         "placeholder": "@:purchases.email.placeholder"
       },
+      "error": {
+        "payment_gateway": "The payment provider did not create an invoice. Try again in a minute."
+      },
       "title": "Order payment"
     },
     "total": "Payment amount"
+  },
+  "errors": {
+    "invalid_email": "Check the e-mail address and try again.",
+    "network": "No connection to the server. Check your internet and try again.",
+    "too_often": "Too many attempts. Wait a minute and try again.",
+    "unavailable": "Something went wrong on our side. Please try again in a moment."
   },
   "navigation": {
     "contacts": "@:routes.contacts",
@@ -36,7 +54,10 @@
   "products": {
     "count": "pc.",
     "currency": "Currency",
+    "empty": "There are no products yet. Come back later.",
+    "error": "Could not load the product list. Check your connection and try again.",
     "list": "List of products",
+    "loading": "Loading the product list...",
     "modal_window": {
       "title": "Buying goods",
       "total_amount": "for the total amount"
@@ -45,7 +66,20 @@
   "purchases": {
     "email": {
       "ask": "Enter the email address to receive the files",
+      "error": {
+        "mail_failed": "Could not send the e-mail right now. Please try again in a moment.",
+        "not_found": "There are no paid purchases on this address."
+      },
       "placeholder": "Enter email"
+    },
+    "page": {
+      "empty": "No paid purchases here yet.",
+      "expired_link": "This link is no longer valid. Request a new one and it will arrive by e-mail.",
+      "file": "File {n}",
+      "file_expired": "The link has expired",
+      "loading": "Loading your purchases…",
+      "share_warning": "The link to this page opens every purchase you made - do not forward it.",
+      "valid_until": "The link works until {date}"
     }
   },
   "routes": {
@@ -54,7 +88,8 @@
     "info": "Rules of the store",
     "main": "Main",
     "my_purchases": "My purchases",
-    "support": "Support"
+    "support": "Support",
+    "unsubscribe": "Unsubscribe"
   },
   "site_info": {
     "description": "Clean documents, we sell in one hand. Write to customer service if you need wholesale or if the document you need is not on the website.",
@@ -89,5 +124,15 @@
       "first": "Documents from various countries for",
       "second": "passing verification"
     }
+  },
+  "unsubscribe": {
+    "already": "{email} is already unsubscribed from the mailing list.",
+    "confirm": "Unsubscribe {email} from the mailing list? E-mails about your purchases will keep coming.",
+    "done": "Done. {email} will no longer receive the mailing list.",
+    "error": "Could not unsubscribe. Please try again in a moment.",
+    "invalid_link": "This unsubscribe link is broken or out of date. Write to support and we will do it by hand.",
+    "loading": "Checking the link...",
+    "submitting": "Unsubscribing...",
+    "unreachable": "Could not open the link - the server is not answering. Try again."
   }
 }

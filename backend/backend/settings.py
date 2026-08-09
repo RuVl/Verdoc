@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -33,7 +34,8 @@ if not DEBUG:
 # Application definition
 INSTALLED_APPS = [
     "modeltranslation",
-    "django.contrib.admin",
+    # Stands in for "django.contrib.admin": same app, our AdminSite (see backend/admin.py).
+    "backend.apps.VerdocAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -44,8 +46,11 @@ INSTALLED_APPS = [
     "corsheaders",
     "djmoney",
     "djmoney.contrib.exchange",
-    "passport",
-    "order",
+    "tinymce",
+    "catalog",
+    "customer",
+    "mailing",
+    "sales",
 ]
 
 MIDDLEWARE = [
@@ -80,8 +85,22 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 
 # Site settings
-# SITE_ID = 1
-SITE_SCHEME = "https"  # Uses to build absolute url
+# Used to build absolute URLs (download links, the purchases page link in e-mails).
+# Overridable so a local run can hand out http:// links that actually open.
+SITE_SCHEME = env("SITE_SCHEME", default="https")
+
+# Customer access lifetimes
+PURCHASES_PAGE_TTL = timedelta(hours=24)  # Customer.access_token
+DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
+
+# Checkout limits. Every unpaid order holds its units until it expires, so one request must not be
+# able to lock a whole product.
+MAX_ITEM_QUANTITY = 30
+MAX_ORDER_ITEMS = 25
+
+# Look up the MX record of the e-mail domain at checkout. Fails open on any DNS trouble, see
+# customer/validators.py - turn it off only if outbound DNS is blocked.
+VALIDATE_EMAIL_MX = env.bool("VALIDATE_EMAIL_MX", default=True)
 
 LOGGING = {
     "version": 1,
@@ -159,13 +178,16 @@ SERIALIZATION_MODULES = {
 
 # Internationalization
 USE_I18N = True
-USE_L10N = True
 LANGUAGE_CODE = "en"
 LANGUAGES = (
     ("en", "English"),
     ("ru", "Russian"),
 )
 MODELTRANSLATION_DEFAULT_LANGUAGE = "en"
+
+# gettext catalogues for the e-mail copy. msgids are the English text, so only `ru` has a
+# catalogue here. `.mo` files are compiled by startup.sh and are not tracked.
+LOCALE_PATHS = [BASE_DIR / "locale"]
 
 # Timezone
 USE_TZ = True
@@ -174,7 +196,6 @@ TIME_ZONE = "UTC"
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
-STATICFILES_DIRS = []  # List of non-standard paths
 
 # Currency settings
 CURRENCIES = ("USD", "RUB")
@@ -187,9 +208,9 @@ PLISIO_SECRET_KEY = env("PLISIO_SECRET_KEY")
 MIRROR_PLISIO_SECRET_KEY = env("MIRROR_PLISIO_SECRET_KEY")
 
 # Email config
-EMAIL_CONFIG = env.email(
-    backend="django.core.mail.backends.smtp.EmailBackend",
-)
+# The backend follows the scheme of EMAIL_URL (smtp:// in production, consolemail:// in dev).
+# Passing `backend=` here would pin it to SMTP and silently ignore the scheme.
+EMAIL_CONFIG = env.email("EMAIL_URL")
 
 EMAIL_HOST_USER = EMAIL_CONFIG.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = EMAIL_CONFIG.get("EMAIL_HOST_PASSWORD")
@@ -202,3 +223,21 @@ DEFAULT_FROM_EMAIL = env.get_value("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER
 EMAIL_BACKEND = EMAIL_CONFIG.get("EMAIL_BACKEND")
 EMAIL_USE_TLS = EMAIL_CONFIG.get("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = EMAIL_CONFIG.get("EMAIL_USE_SSL", False)
+
+# TinyMCE (self-hosted GPL build, no API key) - WYSIWYG editor for Broadcast.body in admin.
+# promotion/branding False strip the "Upgrade" button and "Powered by Tiny" ads.
+# skin/content_css default to light; a capture-phase script in the broadcast change_form
+# swaps them to the dark variants when the admin theme is dark (see change_form.html).
+TINYMCE_DEFAULT_CONFIG = {
+    "height": 500,
+    "menubar": "edit insert format table",
+    "promotion": False,
+    "branding": False,
+    "skin": "oxide",
+    "content_css": "default",
+    "plugins": "advlist autolink lists link image charmap preview anchor "
+    "searchreplace visualblocks code fullscreen insertdatetime table help wordcount",
+    "toolbar": "undo redo | blocks | bold italic forecolor | "
+    "alignleft aligncenter alignright | bullist numlist | "
+    "link image table | removeformat | preview code fullscreen | help",
+}

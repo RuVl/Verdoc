@@ -5,7 +5,11 @@ repos:
       - id: ruff-check
         args: [ "--fix" ]
       - id: ruff-format
-#  - repo: https://github.com/pre-commit/mirrors-mypy
-#    rev: v1.20.2
-#    hooks:
-#      - id: mypy
+  - repo: local
+    hooks:
+      - id: backend-tests
+        name: backend tests (dev postgres)
+        entry: make dev-test
+        language: system
+        always_run: true
+        pass_filenames: false

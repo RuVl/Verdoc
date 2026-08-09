@@ -10,11 +10,13 @@ dependencies = [
     "django-environ==0.14.0",
     "django-modeltranslation==0.20.3",
     "django-money[exchange]==3.5.4",
+    "django-tinymce==5.0.0",
     "gunicorn==23.0.0",
     "gevent==25.5.1",
     "pycountry==24.6.1",
     "psycopg[binary]==3.2.9",
     "requests==2.32.4",
+    "dnspython>=2.8.0",
 ]
 
 # === ruff ===
@@ -26,3 +28,8 @@ extend-exclude = ["best_db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W", "C4", "SIM"]
+
+[dependency-groups]
+dev = [
+    "djangorestframework-stubs>=3.17.1",
+]

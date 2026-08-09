@@ -11,13 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class CountryViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    Send all countries with nested products.
-
-    Both languages go out on every response - `TranslationFieldsMixin` expands `name` into
-    `name_en` and `name_ru` - and the storefront picks one client-side, so there is nothing here
-    for a `?lang=` to change.
-    """
+    """Send all countries with nested products"""
 
     serializer_class = CountrySerializer
 

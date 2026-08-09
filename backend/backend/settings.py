@@ -17,9 +17,6 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 
 # Development settings
 if DEBUG:
-    # Needed because a local run has no django_site row matching the host it is served on. The
-    # price is that Site.objects.get_current(request) stops reading the request, so the mirror
-    # branch in OrderCreateView is unreachable locally - it always picks the primary key.
     SITE_ID = 1
 
 # Production settings

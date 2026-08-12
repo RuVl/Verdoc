@@ -48,6 +48,7 @@ MANAGE_DEV ?= cd backend && $(UV) run --env-file .env --env-file dev.env python 
 PG_USER ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.Path('postgres/.env'); vals=[l.split('=',1)[1].strip() for l in (p.read_text(encoding='utf-8').splitlines() if p.exists() else []) if l.startswith('POSTGRES_USER=')]; print(vals[0] if vals else 'user')")
 PG_DB   ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.Path('postgres/.env'); vals=[l.split('=',1)[1].strip() for l in (p.read_text(encoding='utf-8').splitlines() if p.exists() else []) if l.startswith('POSTGRES_DB=')]; print(vals[0] if vals else 'database')")
 DUMP    ?= backups/dump.sql
+PRODUCTS_DUMP ?= backups/products.tar.gz
 m       ?=
 c       ?=
 FORCE   ?=
@@ -262,6 +263,22 @@ endif
 .PHONY: psql
 psql: ## Интерактивный psql в контейнере
 	$(COMPOSE) exec postgres psql -U $(PG_USER) -d $(PG_DB)
+
+.PHONY: products-dump
+products-dump: ## Дамп файлов продуктов (products_volume) в tar.gz (PRODUCTS_DUMP=backups/products.tar.gz по умолчанию)
+	$(COMPOSE) exec -T backend tar -C /app/products -czf - . > $(PRODUCTS_DUMP)
+	@echo "dumped -> $(PRODUCTS_DUMP)"
+
+.PHONY: products-restore
+products-restore: ## Восстановить файлы продуктов из tar.gz (требует FORCE=1): make products-restore PRODUCTS_DUMP=backups/x.tar.gz FORCE=1
+ifneq ($(FORCE),1)
+	@echo "ОПАСНО: products-restore перезапишет файлы в products_volume дампом $(PRODUCTS_DUMP)."
+	@echo "Если уверены - повторите с FORCE=1: make products-restore PRODUCTS_DUMP=$(PRODUCTS_DUMP) FORCE=1"
+	@exit 1
+else
+	$(COMPOSE) exec -T backend tar -C /app/products -xzf - < $(PRODUCTS_DUMP)
+	@echo "restored <- $(PRODUCTS_DUMP)"
+endif
 
 # --- Фронтенд ---------------------------------------------------------------
 

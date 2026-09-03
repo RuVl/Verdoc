@@ -418,6 +418,13 @@ class DownloadTests(ServedFilesMixin, TestCase):
     def test_malformed_token_is_not_served(self):
         self.assertEqual(self.download("not-a-uuid"), 404)
 
+    def test_a_file_missing_from_the_volume_is_a_dead_link_not_a_crash(self):
+        """The row says sold, the disk disagrees: the customer sees the same 404 as an expired link."""
+        Path(self.allocation.stock_item.file.path).unlink()
+
+        with self.assertLogs("sales.views", level="ERROR"):
+            self.assertEqual(self.download(self.allocation.token), 404)
+
     def test_a_released_allocation_is_not_served(self):
         self.item.allocations.update(state=Allocation.State.RELEASED)
 
@@ -574,6 +581,32 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Allocation.objects.count(), 0)
+
+    def test_the_reason_a_checkout_was_refused_is_named(self):
+        """A sold-out cart and a bad address are both 400 - the storefront tells them apart by code."""
+        # One more than the three units in stock, and well under the per-item cap: this has to be
+        # refused for the stock, not for the number.
+        out_of_stock = self.client.post(self.url, self.payload(quantity=4), format="json")
+        bad_email = self.client.post(
+            self.url,
+            {"email": "not-an-address", "items": [{"product_id": self.product.id, "quantity": 1}]},
+            format="json",
+        )
+        bad_cart = self.client.post(
+            self.url,
+            {
+                "email": "new@example.com",
+                "items": [
+                    {"product_id": self.product.id, "quantity": 1},
+                    {"product_id": self.product.id, "quantity": 1},
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(out_of_stock.data["code"], "out_of_stock")
+        self.assertEqual(bad_email.data["code"], "invalid_email")
+        self.assertEqual(bad_cart.data["code"], "invalid_order")
 
     def test_checkout_reserves_and_snapshots(self):
         with patch("sales.views.requests.get") as plisio:

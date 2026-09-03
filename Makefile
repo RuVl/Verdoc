@@ -246,7 +246,9 @@ prune-callbacks: ## Удалить сырые колбэки Plisio старше
 
 .PHONY: db-dump
 db-dump: ## Дамп БД в файл (DUMP=backups/dump.sql по умолчанию)
-	$(COMPOSE) exec -T postgres pg_dump -U $(PG_USER) -d $(PG_DB) > $(DUMP)
+	@mkdir -p $(dir $(DUMP))
+	@# Через .tmp: редирект обрезал бы прошлый дамп ещё до запуска pg_dump.
+	$(COMPOSE) exec -T postgres pg_dump -U $(PG_USER) -d $(PG_DB) > $(DUMP).tmp && mv $(DUMP).tmp $(DUMP) || { rm -f $(DUMP).tmp; exit 1; }
 	@echo "dumped -> $(DUMP)"
 
 .PHONY: db-restore
@@ -266,17 +268,22 @@ psql: ## Интерактивный psql в контейнере
 
 .PHONY: products-dump
 products-dump: ## Дамп файлов продуктов (products_volume) в tar.gz (PRODUCTS_DUMP=backups/products.tar.gz по умолчанию)
-	$(COMPOSE) exec -T backend tar -C /app/products -czf - . > $(PRODUCTS_DUMP)
+	@mkdir -p $(dir $(PRODUCTS_DUMP))
+	@# Через .tmp: единственная копия файлов товаров не должна пропасть из-за упавшего tar.
+	$(COMPOSE) exec -T backend tar -C /app/products -czf - . > $(PRODUCTS_DUMP).tmp && mv $(PRODUCTS_DUMP).tmp $(PRODUCTS_DUMP) || { rm -f $(PRODUCTS_DUMP).tmp; exit 1; }
 	@echo "dumped -> $(PRODUCTS_DUMP)"
 
 .PHONY: products-restore
 products-restore: ## Восстановить файлы продуктов из tar.gz (требует FORCE=1): make products-restore PRODUCTS_DUMP=backups/x.tar.gz FORCE=1
 ifneq ($(FORCE),1)
-	@echo "ОПАСНО: products-restore перезапишет файлы в products_volume дампом $(PRODUCTS_DUMP)."
+	@echo "ОПАСНО: products-restore заменит содержимое products_volume дампом $(PRODUCTS_DUMP)."
+	@echo "Файлы, которых нет в дампе, будут удалены."
 	@echo "Если уверены - повторите с FORCE=1: make products-restore PRODUCTS_DUMP=$(PRODUCTS_DUMP) FORCE=1"
 	@exit 1
 else
-	$(COMPOSE) exec -T backend tar -C /app/products -xzf - < $(PRODUCTS_DUMP)
+	@# Распаковка идёт в .restore и только потом подменяет содержимое: упавший tar не должен
+	@# оставить том пустым. Простая распаковка поверх была бы слиянием, а не восстановлением.
+	$(COMPOSE) exec -T backend sh -c 'rm -rf /app/products/.restore && mkdir -p /app/products/.restore && tar -C /app/products/.restore -xzf - && find /app/products -mindepth 1 -maxdepth 1 ! -name .restore -exec rm -rf {} + && find /app/products/.restore -mindepth 1 -maxdepth 1 -exec mv -t /app/products/ {} + && rmdir /app/products/.restore' < $(PRODUCTS_DUMP)
 	@echo "restored <- $(PRODUCTS_DUMP)"
 endif
 

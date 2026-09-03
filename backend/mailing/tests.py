@@ -131,6 +131,15 @@ class BroadcastCommandTests(TestCase):
         self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
         self.assertEqual(self.broadcast.deliveries.filter(state=BroadcastDelivery.State.SENT).count(), 2)
 
+    def test_a_broadcast_with_nobody_to_send_to_is_not_a_failure(self):
+        """An empty list is a finished run: a shop everyone left owes nobody a message."""
+        Customer.objects.update(is_subscribed=False)
+
+        self.run_broadcast()
+
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
+
     def test_a_second_run_does_not_send_again(self):
         self.run_broadcast()
         mail.outbox.clear()

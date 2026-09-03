@@ -57,6 +57,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Keeps the container id out of the logs. Deliberately not a public domain: this deployment
+    # serves two of them, and the name mail is sent under is pinned separately by EMAIL_FQDN.
+    hostname: verdoc-backend
     volumes:
       - products_volume:/app/products
       - static_volume:/app/static

@@ -31,6 +31,8 @@
         "placeholder": "@:purchases.email.placeholder"
       },
       "error": {
+        "invalid_order": "We cannot accept this order. Check the cart and try again.",
+        "out_of_stock": "These items have just been bought. Refresh the page and check what is left.",
         "payment_gateway": "The payment provider did not create an invoice. Try again in a minute."
       },
       "title": "Order payment"

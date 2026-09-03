@@ -37,8 +37,13 @@ async function buy() {
     is_opened.value = false;
   } catch (e) {
     // 502 means Plisio refused the invoice. Its own message is English-only and technical, so the
-    // customer gets our text and the provider code goes to the console for us.
-    error.value = errorMessageKey(e, {502: 'cart_view.modal_window.error.payment_gateway'});
+    // customer gets our text and the provider code goes to the console for us. The checkout codes
+    // split the 400s: retrying helps with none of them, but only one is about the address.
+    error.value = errorMessageKey(e, {
+      out_of_stock: 'cart_view.modal_window.error.out_of_stock',
+      invalid_order: 'cart_view.modal_window.error.invalid_order',
+      502: 'cart_view.modal_window.error.payment_gateway',
+    });
     console.error('Checkout failed:', e.response?.data?.provider_code ?? '', e);
   } finally {
     sending.value = false;

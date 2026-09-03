@@ -35,18 +35,40 @@ PLISIO_LANGUAGES = {
 }
 
 
+def checkout_error_code(errors) -> str:
+    """
+    Name what exactly a checkout 400 is, because three different things share that status.
+
+    A bad address, a cart that breaks a rule and a product that sold out while the customer was
+    deciding all answer 400, and the storefront has one message per status - so an out-of-stock
+    race used to tell the buyer to fix an e-mail that was fine.
+    """
+
+    if "email" in errors:
+        return "invalid_email"
+
+    if any(getattr(detail, "code", None) == "out_of_stock" for detail in errors.get("non_field_errors", [])):
+        return "out_of_stock"
+
+    return "invalid_order"
+
+
 class OrderCreateView(APIView):
     """Create a new order endpoint"""
 
     def post(self, request, *args, **kwargs):
         serializer = OrderSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {**serializer.errors, "code": checkout_error_code(serializer.errors)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             order = serializer.save()
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # reserve() refused: the units went to someone else between validation and the write.
+            return Response({"detail": str(e), "code": "out_of_stock"}, status=status.HTTP_400_BAD_REQUEST)
 
         if serializer.reused_order is not None:
             # Same customer, same cart, invoice still alive: send them back to it instead of
@@ -126,7 +148,9 @@ class PlisioCallbackView(APIView):
                 secret_key.encode("utf-8"), ordered_data.encode("utf-8"), hashlib.sha1
             ).hexdigest()
 
-            if calculated_hash == received_hash:
+            # compare_digest, not ==: a plain comparison stops at the first wrong byte and leaks
+            # how much of a guessed hash was right.
+            if received_hash is not None and hmac.compare_digest(calculated_hash, str(received_hash)):
                 return True
 
         return False
@@ -216,9 +240,17 @@ def serve_allocation(allocation: Allocation, count: bool = True):
         logger.error(f"Allocation {allocation.id} has no file to serve")
         return HttpResponseNotFound()
 
-    # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with` here
-    # would close the file before a single byte went out.
-    response = FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)  # noqa: SIM115
+    try:
+        # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with`
+        # here would close the file before a single byte went out.
+        handle = open(allocation.stock_item.file.path, "rb")  # noqa: SIM115
+    except OSError as e:
+        # The row says the unit is sold, the volume says otherwise. That is ours to fix, so it is
+        # logged loudly - but the customer gets the same 404 as every other dead link, not a 500.
+        logger.error(f"Allocation {allocation.id} points at a file that cannot be opened: {e}")
+        return HttpResponseNotFound()
+
+    response = FileResponse(handle, as_attachment=True)
     if count:
         # Counted only once the file is actually open, so a 404 above never looks like a download.
         allocation.record_download()

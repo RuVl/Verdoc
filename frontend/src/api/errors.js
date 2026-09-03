@@ -16,5 +16,9 @@ export function errorMessageKey(error, overrides = {}) {
     if (status === undefined)
         return 'errors.network';
 
-    return overrides[status] ?? BY_STATUS[status] ?? 'errors.unavailable';
+    // Where one status covers several cases the backend names which one it is (`code`), and that
+    // beats the status: a checkout 400 is a bad address, a rejected cart or a sold-out product.
+    const code = error.response?.data?.code;
+
+    return overrides[code] ?? overrides[status] ?? BY_STATUS[status] ?? 'errors.unavailable';
 }

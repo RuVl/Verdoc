@@ -1,7 +1,9 @@
 from datetime import timedelta
+from email.utils import parseaddr
 from pathlib import Path
 
 import environ
+from django.core.mail.utils import DNS_NAME
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -97,6 +99,15 @@ DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
 # able to lock a whole product.
 MAX_ITEM_QUANTITY = 30
 MAX_ORDER_ITEMS = 25
+
+# DRF ships BasicAuthentication on by default, which turns every public endpoint into a place to
+# try Django passwords against. Nothing here authenticates over Basic - the admin uses a session -
+# so the storefront API is left with the session alone.
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+}
 
 # Look up the MX record of the e-mail domain at checkout. Fails open on any DNS trouble, see
 # customer/validators.py - turn it off only if outbound DNS is blocked.
@@ -219,6 +230,16 @@ EMAIL_HOST = EMAIL_CONFIG.get("EMAIL_HOST")
 EMAIL_PORT = EMAIL_CONFIG.get("EMAIL_PORT")
 
 DEFAULT_FROM_EMAIL = env.get_value("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER)
+
+# Django stamps Message-ID and the SMTP EHLO greeting with socket.getfqdn(), which leaks the machine
+# or container hostname into every delivered message and leaves a Message-ID whose domain does not
+# match From:. Pin it to the sender domain - that is also the DKIM domain, so the two cannot drift.
+# parseaddr survives a "Name <a@b>" sender; a value with no domain in it falls back rather than
+# stamping the placeholder itself.
+EMAIL_FQDN = env.get_value(
+    "EMAIL_FQDN", default=parseaddr(DEFAULT_FROM_EMAIL or "")[1].partition("@")[2] or "localhost"
+)
+DNS_NAME._fqdn = EMAIL_FQDN
 
 EMAIL_BACKEND = EMAIL_CONFIG.get("EMAIL_BACKEND")
 EMAIL_USE_TLS = EMAIL_CONFIG.get("EMAIL_USE_TLS", False)

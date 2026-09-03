@@ -88,7 +88,9 @@ class OrderSerializer(serializers.ModelSerializer):
         for item in data["items"]:
             product = item["product"]
             if product.available_count() < item["quantity"]:
-                raise serializers.ValidationError(f"There are not enough products {product.name}")
+                # Tagged so the storefront can say "gone from stock" instead of blaming the address:
+                # this 400 and an invalid e-mail are the same status.
+                raise serializers.ValidationError(f"There are not enough products {product.name}", code="out_of_stock")
 
         return data
 

@@ -60,11 +60,12 @@ class Broadcast(models.Model):
         return self.deliveries.outstanding().count()
 
     def finish(self):
-        """Close the run: FAILED only if nothing at all got through, SENT once nothing is owed."""
+        """Close the run: FAILED only if something is still owed, SENT once the ledger is empty."""
         outstanding = self.deliveries.outstanding().count()
-        sent = self.deliveries.filter(state=BroadcastDelivery.State.SENT).count()
 
-        self.status = self.Status.SENT if not outstanding and sent else self.Status.FAILED
+        # An empty recipient list is not a failure: a new shop, or one everybody has unsubscribed
+        # from, owes nobody a message and the run is done.
+        self.status = self.Status.SENT if not outstanding else self.Status.FAILED
         self.sent_at = timezone.now()
         self.save(update_fields=["status", "sent_at"])
 

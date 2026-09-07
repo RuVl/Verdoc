@@ -81,7 +81,8 @@
       "file_expired": "The link has expired",
       "loading": "Loading your purchases…",
       "share_warning": "The link to this page opens every purchase you made - do not forward it.",
-      "valid_until": "The link works until {date}"
+      "valid_until": "The link works until {date}",
+      "copy_failed": "Could not copy the link - your browser refused clipboard access. Use the download button instead."
     }
   },
   "routes": {

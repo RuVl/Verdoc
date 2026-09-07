@@ -9,8 +9,10 @@ import {useSettingsStore} from "@/stores/settings.js";
 
 const app = createApp(App);
 
-app.use(router);
+// Pinia first: vue-router starts its initial navigation from install(), and a guard that reads a
+// store would run before there is an active pinia to read it from.
 app.use(pinia);
+app.use(router);
 
 const settingsStore = useSettingsStore();
 const i18n = await setupI18n({locale: settingsStore.currentLanguage});

@@ -1,6 +1,6 @@
 import {defineStore} from 'pinia';
 import {useSettingsStore} from "@/stores/settings.js";
-import apiClient from "@/api/index.js";
+import {fetchExchangeRates} from "@/api/catalog.js";
 
 export const useCurrenciesStore = defineStore('currencies', {
     state: () => {
@@ -26,9 +26,9 @@ export const useCurrenciesStore = defineStore('currencies', {
         },
         async updateExchangeRates() {
             try {
-                const response = await apiClient.get('/exchange-rates/');
-                this.exchangeRates = response.data;
+                this.exchangeRates = await fetchExchangeRates();
             } catch (error) {
+                // Prices keep the last rates rather than the switch going blank mid-visit.
                 console.error('Failed to fetch exchange rates:', error);
             }
         },
@@ -43,12 +43,6 @@ export const useCurrenciesStore = defineStore('currencies', {
     }
 });
 
-// After mounting app
-setTimeout(async () => {
-    await useCurrenciesStore().updateExchangeRates();
-}, 1);
-
-// Update currency rate from server every hour
-setInterval(async () => {
-    await useCurrenciesStore().updateExchangeRates();
-}, 3600_000);
+// The first fetch and the hourly refresh live in App.vue: running them here would fire on import,
+// before pinia is installed, and leave an interval nothing ever clears.
+export const EXCHANGE_RATES_INTERVAL_MS = 3600_000;

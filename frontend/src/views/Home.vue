@@ -6,8 +6,7 @@ import CurrencySwitch from "@/components/CurrencySwitch.vue";
 import CartIcon from '@/components/icons/IconCart.vue'
 import Block from "@/components/Block.vue";
 import ProductsList from "@/components/ListView.vue";
-import apiClient from "@/api/index.js";
-import Country from "@/models/Country.js";
+import {fetchCountries as fetchCountriesRequest} from "@/api/catalog.js";
 import {useCartStore} from "@/stores/cart.js";
 import ModalWindow from "@/components/ModalWindow.vue";
 import CounterShow from "@/components/CounterShow.vue";
@@ -22,10 +21,7 @@ async function fetchCountries() {
   loading.value = true;
   failed.value = false;
   try {
-    const response = await apiClient.get('/countries/');
-    countries.value = response.data
-        .map(countryData => Country.fromApi(countryData))
-        .sort((a, b) => a.name.localeCompare(b.name));
+    countries.value = (await fetchCountriesRequest()).sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     // An empty table looks the same as a sold-out catalogue, so say which one it is.
     failed.value = true;

@@ -8,6 +8,7 @@ design/
 # Virtual enviroment
 .venv/
 venv/
+.python-version
 node_modules/
 
 # Enviroment variables
@@ -30,6 +31,9 @@ backend/static/
 
 # Compiled gettext catalogues (built by startup.sh / `make compilemessages`)
 *.mo
+
+# Database and product-file dumps (make db-dump / products-dump)
+backups/
 
 # Test docker-compose
 test*.yml

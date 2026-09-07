@@ -2,7 +2,8 @@
 import {computed, onMounted, ref} from "vue";
 import {useRoute} from "vue-router";
 import {useI18n} from "vue-i18n";
-import apiClient from "@/api/index.js";
+import {fetchPurchases as fetchPurchasesRequest, refreshAllAllocations, refreshAllocation} from "@/api/order.js";
+import {errorMessageKey} from "@/api/errors.js";
 import ViewBlock from "@/components/ViewBlock.vue";
 import CommonButton from "@/components/CommonButton.vue";
 import ProductsList from "@/components/ListView.vue";
@@ -14,8 +15,11 @@ const route = useRoute();
 const token = route.params.token;
 const {locale} = useI18n();
 
-const loading = ref(true);
-const gone = ref(false);
+// One state instead of a flag each: "failed" and "empty" render the same way when they are two
+// booleans, and telling somebody who just paid that they have no purchases is the worst answer
+// this page can give.
+const state = ref('loading'); // loading | ready | failed | gone
+const actionError = ref(null);
 const email = ref('');
 const orders = ref([]);
 const copied = ref(null);
@@ -29,41 +33,48 @@ function apply(fresh) {
 }
 
 async function fetchPurchases() {
-  loading.value = true;
+  state.value = 'loading';
   try {
-    const response = await apiClient.get(`/purchases/${token}/`);
-    email.value = response.data.email;
-    orders.value = response.data.orders;
+    const data = await fetchPurchasesRequest(token);
+    email.value = data.email;
+    orders.value = data.orders;
+    state.value = 'ready';
   } catch (error) {
-    // 404 is the only expected answer here and means the page token is spent, see ADR-0004.
-    if (error.response?.status === 404) gone.value = true;
-    else console.error('Error fetching purchases:', error);
-  } finally {
-    loading.value = false;
+    // 404 means the page token is spent, see ADR-0004. Anything else is our fault, and saying so
+    // is the difference between "come back with a new link" and "try again".
+    state.value = error.response?.status === 404 ? 'gone' : 'failed';
+    console.error('Error fetching purchases:', error);
+  }
+}
+
+// Every action on this page shares one failure shape: a 404 kills the whole page, anything else is
+// this one action failing and has to be visible where the button is.
+async function withTokenGuard(request) {
+  actionError.value = null;
+  try {
+    return await request();
+  } catch (error) {
+    if (error.response?.status === 404) state.value = 'gone';
+    else actionError.value = errorMessageKey(error);
+    console.error('Purchases action failed:', error);
+    return null;
   }
 }
 
 async function refresh(allocation) {
-  try {
-    const response = await apiClient.post(`/purchases/${token}/refresh/${allocation.id}/`);
-    apply(response.data);
-  } catch (error) {
-    if (error.response?.status === 404) gone.value = true;
-    else console.error('Error refreshing the link:', error);
-  }
+  const fresh = await withTokenGuard(() => refreshAllocation(token, allocation.id));
+  if (fresh) apply(fresh);
 }
 
 async function refreshAll() {
-  try {
-    const response = await apiClient.post(`/purchases/${token}/refresh-all/`);
-    response.data.forEach(apply);
-  } catch (error) {
-    if (error.response?.status === 404) gone.value = true;
-    else console.error('Error refreshing the links:', error);
-  }
+  const fresh = await withTokenGuard(() => refreshAllAllocations(token));
+  if (fresh) fresh.forEach(apply);
 }
 
 async function copyLink(allocation) {
+  // The clipboard is refused outside a secure context and by permission, so a silent failure
+  // leaves a button that simply looks broken.
+  actionError.value = null;
   try {
     await navigator.clipboard.writeText(allocation.download_url);
     copied.value = allocation.id;
@@ -71,6 +82,7 @@ async function copyLink(allocation) {
       if (copied.value === allocation.id) copied.value = null;
     }, 2000);
   } catch (error) {
+    actionError.value = 'purchases.page.copy_failed';
     console.error('Error copying the link:', error);
   }
 }
@@ -98,11 +110,16 @@ onMounted(fetchPurchases);
   <ViewBlock>
     <template #title>{{ $t('routes.my_purchases') }}</template>
 
-    <p v-if="loading" class="notice">{{ $t('purchases.page.loading') }}</p>
+    <p v-if="state === 'loading'" class="notice">{{ $t('purchases.page.loading') }}</p>
 
-    <div v-else-if="gone" class="notice gone">
+    <div v-else-if="state === 'gone'" class="notice gone">
       <p>{{ $t('purchases.page.expired_link') }}</p>
       <CommonButton href="/purchases">{{ $t('buttons.request_new_link') }}</CommonButton>
+    </div>
+
+    <div v-else-if="state === 'failed'" class="notice failed" role="alert">
+      <p>{{ $t('errors.unavailable') }}</p>
+      <CommonButton @click="fetchPurchases">{{ $t('buttons.retry') }}</CommonButton>
     </div>
 
     <p v-else-if="!orders.length" class="notice">{{ $t('purchases.page.empty') }}</p>
@@ -114,6 +131,8 @@ onMounted(fetchPurchases);
         <span class="owner-email">{{ email }}</span>
         <CommonButton @click="refreshAll">{{ $t('buttons.refresh_all_links') }}</CommonButton>
       </div>
+
+      <p v-if="actionError" class="form-error" role="alert">{{ $t(actionError) }}</p>
 
       <ProductsList v-for="order in orders" :key="order.id" :elements="order.items">
         <template #title>
@@ -172,11 +191,17 @@ onMounted(fetchPurchases);
   line-height: 24px;
 }
 
-.notice.gone {
+.notice.gone,
+.notice.failed {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 20px;
+}
+
+.form-error {
+  color: var(--red-color);
+  margin: 0;
 }
 
 .share-warning {

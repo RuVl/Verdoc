@@ -31,6 +31,8 @@
         "placeholder": "@:purchases.email.placeholder"
       },
       "error": {
+        "invalid_order": "We cannot accept this order. Check the cart and try again.",
+        "out_of_stock": "These items have just been bought. Refresh the page and check what is left.",
         "payment_gateway": "The payment provider did not create an invoice. Try again in a minute."
       },
       "title": "Order payment"
@@ -79,7 +81,8 @@
       "file_expired": "The link has expired",
       "loading": "Loading your purchases…",
       "share_warning": "The link to this page opens every purchase you made - do not forward it.",
-      "valid_until": "The link works until {date}"
+      "valid_until": "The link works until {date}",
+      "copy_failed": "Could not copy the link - your browser refused clipboard access. Use the download button instead."
     }
   },
   "routes": {

@@ -30,6 +30,13 @@ COMPOSE_DEV ?= docker compose -f docker-compose.dev.yaml
 UV          ?= uv
 RUFF        ?= uvx ruff@0.15.12
 PRECOMMIT   ?= uvx pre-commit
+DOCKER      ?= docker
+
+# Проверка конфига nginx (make nginx-check). Образ — тот же, что во frontend/Dockerfile;
+# домены произвольные: шаблонам нужны только имена и самоподписанные сертификаты под них.
+NGINX_IMAGE         ?= docker.io/library/nginx:1.26.0
+NGINX_DOMAIN        ?= example.com
+NGINX_MIRROR_DOMAIN ?= mirror.example.com
 
 # Пути для ruff (со своим [tool.ruff] в backend/pyproject.toml).
 RUFF_PATHS ?= backend
@@ -48,6 +55,7 @@ MANAGE_DEV ?= cd backend && $(UV) run --env-file .env --env-file dev.env python 
 PG_USER ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.Path('postgres/.env'); vals=[l.split('=',1)[1].strip() for l in (p.read_text(encoding='utf-8').splitlines() if p.exists() else []) if l.startswith('POSTGRES_USER=')]; print(vals[0] if vals else 'user')")
 PG_DB   ?= $(shell $(UV) run --no-project python -c "import pathlib; p=pathlib.Path('postgres/.env'); vals=[l.split('=',1)[1].strip() for l in (p.read_text(encoding='utf-8').splitlines() if p.exists() else []) if l.startswith('POSTGRES_DB=')]; print(vals[0] if vals else 'database')")
 DUMP    ?= backups/dump.sql
+PRODUCTS_DUMP ?= backups/products.tar.gz
 m       ?=
 c       ?=
 FORCE   ?=
@@ -128,6 +136,27 @@ logs-db: ## Логи postgres
 .PHONY: logs-nginx
 logs-nginx: ## Логи frontend-nginx
 	$(COMPOSE) logs -f frontend-nginx
+
+# Синтаксис конфига nginx без сборки стека: одноразовый контейнер, оба шаблона рендерятся
+# envsubst'ом (DOMAIN и MIRROR_DOMAIN), сертификаты и каталоги создаются на месте, backend
+# резолвится в 127.0.0.1 — nginx проверяет имя из proxy_pass при старте.
+.PHONY: nginx-check
+nginx-check: ## Проверить конфиг nginx (envsubst + nginx -t в одноразовом контейнере)
+	$(DOCKER) run --rm --add-host backend:127.0.0.1 -v "$(CURDIR)/frontend/nginx:/conf:ro" \
+	  -e DOMAIN=$(NGINX_DOMAIN) -e MIRROR_DOMAIN=$(NGINX_MIRROR_DOMAIN) $(NGINX_IMAGE) sh -c '\
+	  apt-get -qq update >/dev/null && apt-get -qq install -y gettext-base >/dev/null; \
+	  for d in "$$DOMAIN" "$$MIRROR_DOMAIN"; do \
+	    openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$$d" \
+	      -keyout /etc/ssl/$$d.key -out /etc/ssl/$$d.crt >/dev/null 2>&1; \
+	  done; \
+	  cp /conf/00-limits.conf /etc/nginx/conf.d/00-limits.conf; \
+	  cp /conf/cloudflare-realip.conf /etc/nginx/conf.d/01-cloudflare-realip.conf; \
+	  cp /conf/proxy-backend.conf /etc/nginx/proxy-backend.conf; \
+	  cp /conf/site-body.conf /etc/nginx/site-body.conf; \
+	  rm -f /etc/nginx/conf.d/default.conf; \
+	  envsubst "\$$DOMAIN" < /conf/site.conf.template > /etc/nginx/conf.d/verif-docs.conf; \
+	  envsubst "\$$MIRROR_DOMAIN" < /conf/mirror.conf.template > /etc/nginx/conf.d/photo-scan.conf; \
+	  mkdir -p /usr/www/logs /app/static; nginx -t'
 
 # --- Резервный SMTP-релей с DKIM (boky/postfix, профиль mail) ----------------
 # Нужен ключ secrets/opendkim/photo-scan.store.private и EMAIL_URL=smtp://mail:587
@@ -245,7 +274,9 @@ prune-callbacks: ## Удалить сырые колбэки Plisio старше
 
 .PHONY: db-dump
 db-dump: ## Дамп БД в файл (DUMP=backups/dump.sql по умолчанию)
-	$(COMPOSE) exec -T postgres pg_dump -U $(PG_USER) -d $(PG_DB) > $(DUMP)
+	@mkdir -p $(dir $(DUMP))
+	@# Через .tmp: редирект обрезал бы прошлый дамп ещё до запуска pg_dump.
+	$(COMPOSE) exec -T postgres pg_dump -U $(PG_USER) -d $(PG_DB) > $(DUMP).tmp && mv $(DUMP).tmp $(DUMP) || { rm -f $(DUMP).tmp; exit 1; }
 	@echo "dumped -> $(DUMP)"
 
 .PHONY: db-restore
@@ -262,6 +293,27 @@ endif
 .PHONY: psql
 psql: ## Интерактивный psql в контейнере
 	$(COMPOSE) exec postgres psql -U $(PG_USER) -d $(PG_DB)
+
+.PHONY: products-dump
+products-dump: ## Дамп файлов продуктов (products_volume) в tar.gz (PRODUCTS_DUMP=backups/products.tar.gz по умолчанию)
+	@mkdir -p $(dir $(PRODUCTS_DUMP))
+	@# Через .tmp: единственная копия файлов товаров не должна пропасть из-за упавшего tar.
+	$(COMPOSE) exec -T backend tar -C /app/products -czf - . > $(PRODUCTS_DUMP).tmp && mv $(PRODUCTS_DUMP).tmp $(PRODUCTS_DUMP) || { rm -f $(PRODUCTS_DUMP).tmp; exit 1; }
+	@echo "dumped -> $(PRODUCTS_DUMP)"
+
+.PHONY: products-restore
+products-restore: ## Восстановить файлы продуктов из tar.gz (требует FORCE=1): make products-restore PRODUCTS_DUMP=backups/x.tar.gz FORCE=1
+ifneq ($(FORCE),1)
+	@echo "ОПАСНО: products-restore заменит содержимое products_volume дампом $(PRODUCTS_DUMP)."
+	@echo "Файлы, которых нет в дампе, будут удалены."
+	@echo "Если уверены - повторите с FORCE=1: make products-restore PRODUCTS_DUMP=$(PRODUCTS_DUMP) FORCE=1"
+	@exit 1
+else
+	@# Распаковка идёт в .restore и только потом подменяет содержимое: упавший tar не должен
+	@# оставить том пустым. Простая распаковка поверх была бы слиянием, а не восстановлением.
+	$(COMPOSE) exec -T backend sh -c 'rm -rf /app/products/.restore && mkdir -p /app/products/.restore && tar -C /app/products/.restore -xzf - && find /app/products -mindepth 1 -maxdepth 1 ! -name .restore -exec rm -rf {} + && find /app/products/.restore -mindepth 1 -maxdepth 1 -exec mv -t /app/products/ {} + && rmdir /app/products/.restore' < $(PRODUCTS_DUMP)
+	@echo "restored <- $(PRODUCTS_DUMP)"
+endif
 
 # --- Фронтенд ---------------------------------------------------------------
 

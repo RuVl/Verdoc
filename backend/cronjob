@@ -1,3 +1,8 @@
-*/10 * * * * /app/.venv/bin/python /app/manage.py expire_transactions >> /var/log/cron.log 2>&1
-*/15 * * * * /app/.venv/bin/python /app/manage.py broadcast >> /var/log/cron.log 2>&1
-30 4 * * 0 /app/.venv/bin/python /app/manage.py prune_callback_logs >> /var/log/cron.log 2>&1
+SHELL=/bin/bash
+
+# cron starts the jobs with an empty environment, so each one sources the dump startup.sh writes
+# from the container env - without it Django dies on SECRET_KEY before the job runs. The file is
+# quoted with printf %q, which is why the shell above is bash and not cron's default /bin/sh.
+*/10 * * * * . /etc/verdoc-cron.env; /app/.venv/bin/python /app/manage.py expire_transactions >> /var/log/cron.log 2>&1
+*/15 * * * * . /etc/verdoc-cron.env; /app/.venv/bin/python /app/manage.py broadcast >> /var/log/cron.log 2>&1
+30 4 * * 0 . /etc/verdoc-cron.env; /app/.venv/bin/python /app/manage.py prune_callback_logs >> /var/log/cron.log 2>&1

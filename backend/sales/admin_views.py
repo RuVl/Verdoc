@@ -181,7 +181,10 @@ def statistics_csv_view(request):
     writer.writerow(["Revenue by day (UTC)"])
     writer.writerow(["date", "gross_usd", f"average_{statistics.TREND_WINDOW}d_usd"])
     for row, average in zip(revenue, trend, strict=True):
-        writer.writerow([row["day"].isoformat(), _money(row["revenue"]), _money(average) if average else ""])
+        # An empty cell means "no window yet", so a genuine zero has to print as 0.00 - the column
+        # beside it does the same, and the two must not disagree about a dead week.
+        trend_cell = _money(average) if average is not None else ""
+        writer.writerow([row["day"].isoformat(), _money(row["revenue"]), trend_cell])
 
     writer.writerow([])
     writer.writerow(["Sales by product - every product sold in the period"])

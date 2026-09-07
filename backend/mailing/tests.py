@@ -131,6 +131,15 @@ class BroadcastCommandTests(TestCase):
         self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
         self.assertEqual(self.broadcast.deliveries.filter(state=BroadcastDelivery.State.SENT).count(), 2)
 
+    def test_a_broadcast_with_nobody_to_send_to_is_not_a_failure(self):
+        """An empty list is a finished run: a shop everyone left owes nobody a message."""
+        Customer.objects.update(is_subscribed=False)
+
+        self.run_broadcast()
+
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
+
     def test_a_second_run_does_not_send_again(self):
         self.run_broadcast()
         mail.outbox.clear()
@@ -157,6 +166,19 @@ class BroadcastCommandTests(TestCase):
         # Only the one that failed is retried, and the broadcast closes clean.
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
+
+    def test_a_broadcast_already_sending_is_left_alone(self):
+        """The claim is what stops a second sender mailing everyone all over again."""
+
+        Broadcast.objects.filter(pk=self.broadcast.pk).update(status=Broadcast.Status.SENDING)
+
+        self.assertFalse(self.broadcast.claim())
+
+        self.run_broadcast(id=self.broadcast.id)
+
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(self.broadcast.deliveries.count(), 0)
+        self.assertEqual(self.broadcast.status, Broadcast.Status.SENDING)
 
     def test_a_failure_is_recorded_against_the_recipient(self):
         with patch("mailing.management.commands.broadcast.build_broadcast_email") as build:
@@ -238,6 +260,20 @@ class BroadcastAdminTests(TestCase):
         # modeltranslation's own classes, so it is not the thing to match on.
         self.assertEqual(page.count("data-mce-conf"), 2)
         self.assertIn("tinymce.min.js", page)
+
+    def test_a_stuck_sending_broadcast_can_be_requeued(self):
+        """A killed sender leaves SENDING behind, and the admin is the only way out of it."""
+
+        Broadcast.objects.filter(pk=self.broadcast.pk).update(status=Broadcast.Status.SENDING)
+
+        self.client.post(
+            reverse("admin:mailing_broadcast_changelist"),
+            {"action": "queue_for_sending", "_selected_action": [str(self.broadcast.pk)]},
+            follow=True,
+        )
+
+        self.broadcast.refresh_from_db()
+        self.assertEqual(self.broadcast.status, Broadcast.Status.QUEUED)
 
     def test_the_counts_follow_the_delivery_rows(self):
         with patch("mailing.management.commands.broadcast.build_broadcast_email") as build:

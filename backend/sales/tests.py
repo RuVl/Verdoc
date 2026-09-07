@@ -324,6 +324,63 @@ class PlisioCallbackTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(log.txn_id, "txn-1")
         self.assertNotIn("verify_hash", log.payload)
 
+    def test_the_hash_is_checked_the_way_plisio_builds_it(self):
+        # Plisio (and its own SDK) hashes the JSON body in the order it sent it, with non-ASCII
+        # escaped - it does not sort the keys. Signing with our own helper cannot catch a
+        # disagreement about that, so this payload is signed the SDK's way, keys deliberately out
+        # of alphabetical order and with a Cyrillic value in it.
+        payload = {
+            "txn_id": "txn-sdk",
+            "order_number": str(self.order.id),
+            "status": "completed",
+            "amount": "0.0005",
+            "currency": "BTC",
+            "order_name": "Заказ №1",
+        }
+        body = json.dumps(payload, separators=(",", ":"))
+        payload["verify_hash"] = hmac.new(settings.PLISIO_SECRET_KEY.encode(), body.encode(), hashlib.sha1).hexdigest()
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.paid_at)
+
+    def test_a_sorted_hash_is_accepted_too(self):
+        # Whether Plisio hands the keys over sorted is not something we get to know for sure, so
+        # both readings of the same payload are accepted - each is an HMAC with our own key.
+        response = self.post_callback(txn_id="txn-sorted")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.paid_at)
+
+    def test_an_unescaped_non_ascii_callback_is_accepted(self):
+        # The other spelling of the same body: this endpoint has always hashed with
+        # `ensure_ascii=False`, and that is what production signs against today. It only differs
+        # from the escaped reading once a payload carries non-ASCII, so a Cyrillic comment is the
+        # one payload that would refuse a live payment if that candidate were dropped.
+        response = self.post_callback(txn_id="txn-cyrillic", comment="Оплата заказа №1")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.paid_at)
+
+    def test_a_form_encoded_callback_is_accepted(self):
+        # This is the shape Plisio posts without ?json=true. A QueryDict hands back lists, not
+        # strings, so a callback read straight off request.data never matched its own hash - and
+        # every JSON test above passed while the real thing was refused.
+        response = self.client.post(self.url, sign_plisio_payload(self.payload))
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.paid_at)
+        self.assertEqual(self.item.allocations.filter(state=Allocation.State.DELIVERED).count(), 1)
+        # The stored payload has to be readable too, not a dict of one-element lists.
+        log = PaymentCallbackLog.objects.get()
+        self.assertEqual(log.payload["status"], "completed")
+        self.assertNotIn("verify_hash", log.payload)
+
     def test_bad_hash_is_rejected(self):
         response = self.client.post(self.url, {**self.payload, "verify_hash": "nope"}, format="json")
 
@@ -417,6 +474,13 @@ class DownloadTests(ServedFilesMixin, TestCase):
 
     def test_malformed_token_is_not_served(self):
         self.assertEqual(self.download("not-a-uuid"), 404)
+
+    def test_a_file_missing_from_the_volume_is_a_dead_link_not_a_crash(self):
+        """The row says sold, the disk disagrees: the customer sees the same 404 as an expired link."""
+        Path(self.allocation.stock_item.file.path).unlink()
+
+        with self.assertLogs("sales.views", level="ERROR"):
+            self.assertEqual(self.download(self.allocation.token), 404)
 
     def test_a_released_allocation_is_not_served(self):
         self.item.allocations.update(state=Allocation.State.RELEASED)
@@ -575,6 +639,32 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Allocation.objects.count(), 0)
 
+    def test_the_reason_a_checkout_was_refused_is_named(self):
+        """A sold-out cart and a bad address are both 400 - the storefront tells them apart by code."""
+        # One more than the three units in stock, and well under the per-item cap: this has to be
+        # refused for the stock, not for the number.
+        out_of_stock = self.client.post(self.url, self.payload(quantity=4), format="json")
+        bad_email = self.client.post(
+            self.url,
+            {"email": "not-an-address", "items": [{"product_id": self.product.id, "quantity": 1}]},
+            format="json",
+        )
+        bad_cart = self.client.post(
+            self.url,
+            {
+                "email": "new@example.com",
+                "items": [
+                    {"product_id": self.product.id, "quantity": 1},
+                    {"product_id": self.product.id, "quantity": 1},
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(out_of_stock.data["code"], "out_of_stock")
+        self.assertEqual(bad_email.data["code"], "invalid_email")
+        self.assertEqual(bad_cart.data["code"], "invalid_order")
+
     def test_checkout_reserves_and_snapshots(self):
         with patch("sales.views.requests.get") as plisio:
             plisio.return_value.status_code = 200
@@ -653,6 +743,54 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Allocation.objects.count(), 0)
+
+    @override_settings(PLISIO_SECRET_KEY="primary-key", MIRROR_PLISIO_SECRET_KEY="mirror-key")
+    def test_a_network_error_never_writes_the_api_key_into_the_log(self):
+        # requests puts the whole request URL into its exception message, and the key travels in
+        # the query string - both shops' keys have to be blanked, whichever domain minted this.
+        leak = requests.ConnectionError(
+            "HTTPSConnectionPool: /api/v1/invoices/new?api_key=primary-key&callback=mirror-key"
+        )
+
+        with (
+            patch("sales.views.requests.get", side_effect=leak),
+            self.assertLogs("sales.views", level="ERROR") as logs,
+        ):
+            response = self.client.post(self.url, self.payload(), format="json")
+
+        self.assertEqual(response.status_code, 502)
+        output = "\n".join(logs.output)
+        self.assertNotIn("primary-key", output)
+        self.assertNotIn("mirror-key", output)
+        self.assertIn("***", output)
+
+    @override_settings(PLISIO_SECRET_KEY="primary-key", MIRROR_PLISIO_SECRET_KEY="")
+    def test_an_unset_key_does_not_star_out_the_whole_message(self):
+        # "".replace() matches between every character - an empty key must be skipped, not applied.
+        with (
+            patch("sales.views.requests.get", side_effect=requests.ConnectionError("no route to host")),
+            self.assertLogs("sales.views", level="ERROR") as logs,
+        ):
+            self.client.post(self.url, self.payload(), format="json")
+
+        self.assertIn("no route to host", "\n".join(logs.output))
+
+    def test_the_invoice_carries_the_callback_url_with_json_true(self):
+        # Without ?json=true Plisio posts a form signed with PHP's serialize(), which validate_hash
+        # cannot reproduce - every payment would be refused at the callback. The mode must not
+        # depend on a dashboard setting nothing here can see.
+        with patch("sales.views.requests.get") as plisio:
+            plisio.return_value.status_code = 200
+            plisio.return_value.json.return_value = {
+                "status": "success",
+                "data": {"invoice_url": "https://plisio.net/invoice/1"},
+            }
+
+            self.client.post(self.url, self.payload(), format="json")
+
+        url = plisio.call_args.kwargs["params"]["callback_url"]
+        self.assertTrue(url.endswith("/api/order/status?json=true"), url)
+        self.assertTrue(url.startswith("http"), url)
 
     def test_unreachable_plisio_does_not_leave_a_reservation(self):
         with (
@@ -758,6 +896,20 @@ class CheckoutReuseTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
         plisio.assert_called_once()
         self.assertEqual(Allocation.objects.count(), 2)
+
+    def test_a_paid_order_rolled_back_to_pending_is_not_reused(self):
+        # A late `cancelled duplicate` callback after `completed` writes PENDING back onto a
+        # settled order. If deliver() had failed its units are still RESERVED, so the cart matches
+        # and only paid_at keeps the next checkout off a dead invoice of an order already paid.
+        self.checkout(self.payload())
+        order = Order.objects.get(customer__email="new@example.com")
+        Order.objects.filter(pk=order.pk).update(paid_at=timezone.now(), status=Order.OrderStatus.PENDING)
+
+        second, plisio = self.checkout(self.payload(), invoice_url="https://plisio.net/invoice/2")
+
+        self.assertEqual(second.data["redirect_url"], "https://plisio.net/invoice/2")
+        plisio.assert_called_once()
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 2)
 
     def test_a_failed_invoice_leaves_nothing_to_reuse(self):
         with patch("sales.views.requests.get") as plisio:

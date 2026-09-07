@@ -2,7 +2,7 @@ import {defineStore} from 'pinia';
 import plisio_icon from "@/assets/plisio.png";
 import {useCartStore} from "@/stores/cart";
 import {useSettingsStore} from "@/stores/settings";
-import apiClient from "@/api/index.js";
+import {checkout} from "@/api/order.js";
 
 export const useOrderStore = defineStore('order', {
     state: () => ({
@@ -14,15 +14,13 @@ export const useOrderStore = defineStore('order', {
         // Both ways of buying are the same request; the error is deliberately not caught here, the
         // form that started it is the only place that can tell the customer about it.
         async _checkout(email, items) {
-            const response = await apiClient.post('/order/', {
-                email: email,
+            return checkout({
+                email,
                 // Remembered on the Customer: the delivery e-mail is sent from the payment
                 // webhook, long after this browser is gone.
                 language: useSettingsStore().currentLanguage,
-                items: items,
+                items,
             });
-
-            return response.data.redirect_url;
         },
         async makeOrder(email) {
             const cartStore = useCartStore();

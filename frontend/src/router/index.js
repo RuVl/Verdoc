@@ -63,6 +63,14 @@ const routes = [
 const router = createRouter({
     history: createWebHistory(),
     routes: routes,
+    // Back goes where the visitor left off; a new page opens at the top. Same path means only the
+    // query moved - switching the language is the one that matters here - and that must not throw
+    // the reader back to the top of what they were reading.
+    scrollBehavior(to, from, savedPosition) {
+        if (savedPosition) return savedPosition;
+        if (to.path === from.path) return false;
+        return {top: 0};
+    },
 });
 
 router.beforeEach(async (to, from, next) => {

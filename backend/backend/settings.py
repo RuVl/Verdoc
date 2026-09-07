@@ -1,7 +1,9 @@
 from datetime import timedelta
+from email.utils import parseaddr
 from pathlib import Path
 
 import environ
+from django.core.mail.utils import DNS_NAME
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -17,6 +19,9 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 
 # Development settings
 if DEBUG:
+    # Local only. In production SITE_ID stays unset on purpose: one backend serves two domains and
+    # `Site.objects.get_current(request)` then picks the site by Host header, which is how the
+    # mirror keeps its links to itself. Links built without a request use DEFAULT_SITE_DOMAIN.
     SITE_ID = 1
 
 # Production settings
@@ -89,6 +94,12 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Overridable so a local run can hand out http:// links that actually open.
 SITE_SCHEME = env("SITE_SCHEME", default="https")
 
+# The domain links are signed with when there is no request to read the Host from - cron
+# (broadcast), and anything else built off-request. With SITE_ID unset Django refuses to guess a
+# site, so name the domain here. The first ALLOWED_HOSTS entry is already "the main domain"
+# elsewhere (sales/views.py picks the Plisio key by it), so it is the default.
+DEFAULT_SITE_DOMAIN = env("DEFAULT_SITE_DOMAIN", default=ALLOWED_HOSTS[0] if ALLOWED_HOSTS else "")
+
 # Customer access lifetimes
 PURCHASES_PAGE_TTL = timedelta(hours=24)  # Customer.access_token
 DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
@@ -97,6 +108,22 @@ DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
 # able to lock a whole product.
 MAX_ITEM_QUANTITY = 30
 MAX_ORDER_ITEMS = 25
+
+# DRF ships BasicAuthentication on by default, which turns every public endpoint into a place to
+# try Django passwords against. Nothing here authenticates over Basic - the admin uses a session -
+# so the storefront API is left with the session alone.
+# The browsable API renders a writable HTML form on every endpoint, so production speaks JSON only.
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+}
+
+if DEBUG:
+    REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")
 
 # Look up the MX record of the e-mail domain at checkout. Fails open on any DNS trouble, see
 # customer/validators.py - turn it off only if outbound DNS is blocked.
@@ -197,6 +224,22 @@ TIME_ZONE = "UTC"
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
 
+# Media files (the product files being sold).
+#
+# BASE_DIR, not BASE_DIR / "products": the stored names already carry that prefix
+# (StockItem.file is upload_to="products/"), so the join lands on /app/products/<name> in the
+# container - the products_volume mount - and on backend/products/<name> on a host run. Adding
+# the directory here would double it and break every download.
+#
+# This is what the empty default already resolved to, since it is taken against the working
+# directory and every way we start Django has cwd == BASE_DIR (WORKDIR /app in the image, `cd
+# backend` in the Makefile). Spelling it out drops that coincidence: cron runs from the home
+# directory, so a job that ever touches a file would have looked for it under /root.
+#
+# MEDIA_URL is spelled out at the value Django computes anyway ("" gets a script prefix added).
+MEDIA_ROOT = BASE_DIR
+MEDIA_URL = "/"
+
 # Currency settings
 CURRENCIES = ("USD", "RUB")
 BASE_CURRENCY = "USD"
@@ -219,6 +262,16 @@ EMAIL_HOST = EMAIL_CONFIG.get("EMAIL_HOST")
 EMAIL_PORT = EMAIL_CONFIG.get("EMAIL_PORT")
 
 DEFAULT_FROM_EMAIL = env.get_value("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER)
+
+# Django stamps Message-ID and the SMTP EHLO greeting with socket.getfqdn(), which leaks the machine
+# or container hostname into every delivered message and leaves a Message-ID whose domain does not
+# match From:. Pin it to the sender domain - that is also the DKIM domain, so the two cannot drift.
+# parseaddr survives a "Name <a@b>" sender; a value with no domain in it falls back rather than
+# stamping the placeholder itself.
+EMAIL_FQDN = env.get_value(
+    "EMAIL_FQDN", default=parseaddr(DEFAULT_FROM_EMAIL or "")[1].partition("@")[2] or "localhost"
+)
+DNS_NAME._fqdn = EMAIL_FQDN
 
 EMAIL_BACKEND = EMAIL_CONFIG.get("EMAIL_BACKEND")
 EMAIL_USE_TLS = EMAIL_CONFIG.get("EMAIL_USE_TLS", False)

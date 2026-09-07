@@ -1,7 +1,7 @@
 <script setup>
 import {onMounted, ref} from "vue";
 import {useRoute} from "vue-router";
-import apiClient from "@/api/index.js";
+import {readUnsubscribeToken, unsubscribe as unsubscribeRequest} from "@/api/mailing.js";
 import ViewBlock from "@/components/ViewBlock.vue";
 import CommonButton from "@/components/CommonButton.vue";
 
@@ -26,9 +26,9 @@ async function resolveToken() {
   loading.value = true;
   failed.value = false;
   try {
-    const response = await apiClient.get(`/unsubscribe/${token}/`);
-    email.value = response.data.email;
-    subscribed.value = response.data.is_subscribed;
+    const data = await readUnsubscribeToken(token);
+    email.value = data.email;
+    subscribed.value = data.is_subscribed;
     resolved.value = true;
   } catch (error) {
     if (error.response?.status === 400) invalid.value = true;
@@ -45,8 +45,8 @@ async function unsubscribe() {
   submitting.value = true;
   failed.value = false;
   try {
-    const response = await apiClient.post(`/unsubscribe/${token}/`);
-    email.value = response.data.email;
+    const data = await unsubscribeRequest(token);
+    email.value = data.email;
     subscribed.value = false;
     done.value = true;
   } catch (error) {

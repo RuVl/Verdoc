@@ -11,10 +11,12 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import FileResponse, HttpResponseNotFound
+from django.urls import reverse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from backend.sites import absolute_url
 from customer.models import Customer
 from sales.models import Allocation, Order, PaymentCallbackLog, Transaction
 from sales.plisio import apply_order_status, callback_to_fields
@@ -35,18 +37,58 @@ PLISIO_LANGUAGES = {
 }
 
 
+def callback_url(request) -> str:
+    """Where Plisio reports this invoice, with the parameter that decides how it signs the report."""
+
+    return absolute_url(reverse("plisio-callback"), request) + "?json=true"
+
+
+def redact(value) -> str:
+    """Message with the Plisio API keys blanked out - they ride in the request URL requests echoes."""
+
+    message = str(value)
+    for secret_key in (settings.PLISIO_SECRET_KEY, settings.MIRROR_PLISIO_SECRET_KEY):
+        # An unset key is skipped: "".replace() matches between every character.
+        if secret_key:
+            message = message.replace(secret_key, "***")
+
+    return message
+
+
+def checkout_error_code(errors) -> str:
+    """
+    Name what exactly a checkout 400 is, because three different things share that status.
+
+    A bad address, a cart that breaks a rule and a product that sold out while the customer was
+    deciding all answer 400, and the storefront has one message per status - so an out-of-stock
+    race used to tell the buyer to fix an e-mail that was fine.
+    """
+
+    if "email" in errors:
+        return "invalid_email"
+
+    if any(getattr(detail, "code", None) == "out_of_stock" for detail in errors.get("non_field_errors", [])):
+        return "out_of_stock"
+
+    return "invalid_order"
+
+
 class OrderCreateView(APIView):
     """Create a new order endpoint"""
 
     def post(self, request, *args, **kwargs):
         serializer = OrderSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {**serializer.errors, "code": checkout_error_code(serializer.errors)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             order = serializer.save()
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # reserve() refused: the units went to someone else between validation and the write.
+            return Response({"detail": str(e), "code": "out_of_stock"}, status=status.HTTP_400_BAD_REQUEST)
 
         if serializer.reused_order is not None:
             # Same customer, same cart, invoice still alive: send them back to it instead of
@@ -67,6 +109,9 @@ class OrderCreateView(APIView):
             "source_amount": order.total_price.amount,
             "email": order.customer.email,
             "api_key": secret_key,
+            # Sent with every invoice, not left to a dashboard setting: it is what makes Plisio
+            # post JSON and sign it the way `validate_hash` checks.
+            "callback_url": callback_url(request),
             "language": PLISIO_LANGUAGES.get(order.customer.language, "en_US"),
             "expire_min": "60",
         }
@@ -77,9 +122,9 @@ class OrderCreateView(APIView):
             payload = response.json()
         except ValueError as e:
             # Includes requests' JSONDecodeError - the call went through, the body is not JSON.
-            logger.error(f"Plisio answered order {order.id} with something that is not JSON: {e}")
+            logger.error(f"Plisio answered order {order.id} with something that is not JSON: {redact(e)}")
         except requests.RequestException as e:
-            logger.error(f"Plisio is unreachable for order {order.id}: {e}")
+            logger.error(f"Plisio is unreachable for order {order.id}: {redact(e)}")
 
         if response is not None and response.status_code == 200 and payload.get("status") == "success":
             logger.info(f"Order {order.id} created successfully")
@@ -115,24 +160,54 @@ class PlisioCallbackView(APIView):
 
     @staticmethod
     def validate_hash(data):
-        received_hash = data.pop("verify_hash", None)
+        """
+        HMAC-SHA1 over the JSON body, the way Plisio signs it.
+
+        This only ever matches when the callback URL carries `?json=true` - without it Plisio posts
+        a form and signs PHP's `serialize()` of the sorted array, which is a different algorithm
+        entirely. The URL goes out with every invoice (see OrderCreateView), so that parameter is
+        not left to a dashboard setting.
+
+        Plisio's own SDK hashes the body in the order it arrived, and PHP's json_encode escapes
+        non-ASCII, so that reading comes first. Every serialisation we have seen work is tried:
+        the key order is not something we get to know, and the escaping only differs once a
+        payload carries non-ASCII - which the `ensure_ascii=False` pair is here to survive, since
+        that is the spelling this endpoint accepted before. Each candidate is an HMAC with our own
+        key, so accepting more of them forges nothing. The keys are the primary shop and the
+        mirror - a callback can be about an invoice minted on either domain.
+        """
+
+        received_hash = str(data.pop("verify_hash", None) or "")
+
+        candidates = (
+            json.dumps(data, separators=(",", ":")),
+            json.dumps(data, sort_keys=True, separators=(",", ":")),
+            json.dumps(data, separators=(",", ":"), ensure_ascii=False),
+            json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        )
 
         for secret_key in (
             settings.PLISIO_SECRET_KEY,
             settings.MIRROR_PLISIO_SECRET_KEY,
         ):
-            ordered_data = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-            calculated_hash = hmac.new(
-                secret_key.encode("utf-8"), ordered_data.encode("utf-8"), hashlib.sha1
-            ).hexdigest()
+            for candidate in candidates:
+                calculated_hash = hmac.new(
+                    secret_key.encode("utf-8"), candidate.encode("utf-8"), hashlib.sha1
+                ).hexdigest()
 
-            if calculated_hash == received_hash:
-                return True
+                # compare_digest, not ==: a plain comparison stops at the first wrong byte and
+                # leaks how much of a guessed hash was right.
+                if hmac.compare_digest(calculated_hash, received_hash):
+                    return True
 
         return False
 
     def post(self, request, *args, **kwargs):
-        data = request.data.copy()
+        # Plisio posts form-encoded, so request.data is a QueryDict: `copy()` keeps it one, and a
+        # QueryDict hands back *lists* from pop() and from dict(). That is why this is flattened
+        # first - the hash compare, the stored payload and callback_to_fields all want plain
+        # strings, and a JSON post already arrives as a plain dict.
+        data = request.data.dict() if hasattr(request.data, "dict") else dict(request.data)
         if not self.validate_hash(data):
             logger.warning(f"Hash verification failed for transaction {data.get('txn_id')}")
             return Response(
@@ -216,9 +291,17 @@ def serve_allocation(allocation: Allocation, count: bool = True):
         logger.error(f"Allocation {allocation.id} has no file to serve")
         return HttpResponseNotFound()
 
-    # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with` here
-    # would close the file before a single byte went out.
-    response = FileResponse(open(allocation.stock_item.file.path, "rb"), as_attachment=True)  # noqa: SIM115
+    try:
+        # noqa SIM115: FileResponse owns the handle and closes it when the stream ends - a `with`
+        # here would close the file before a single byte went out.
+        handle = open(allocation.stock_item.file.path, "rb")  # noqa: SIM115
+    except OSError as e:
+        # The row says the unit is sold, the volume says otherwise. That is ours to fix, so it is
+        # logged loudly - but the customer gets the same 404 as every other dead link, not a 500.
+        logger.error(f"Allocation {allocation.id} points at a file that cannot be opened: {e}")
+        return HttpResponseNotFound()
+
+    response = FileResponse(handle, as_attachment=True)
     if count:
         # Counted only once the file is actually open, so a 404 above never looks like a download.
         allocation.record_download()

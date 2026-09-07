@@ -1,6 +1,6 @@
 <script setup>
 import {reactive, ref} from "vue";
-import apiClient from "@/api/index.js";
+import {sendPurchasesLink} from "@/api/order.js";
 import {useSettingsStore} from "@/stores/settings";
 import {errorMessageKey} from "@/api/errors.js";
 import ViewBlock from "@/components/ViewBlock.vue";
@@ -18,7 +18,7 @@ async function sendLinks() {
   error.value = null;
   sending.value = true;
   try {
-    const response = await apiClient.post('/send-links/', {
+    const response = await sendPurchasesLink({
       email: purchases_form.email,
       language: useSettingsStore().currentLanguage,
     });

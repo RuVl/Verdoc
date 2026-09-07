@@ -59,6 +59,31 @@ class Broadcast(models.Model):
 
         return self.deliveries.outstanding().count()
 
+    def claim(self) -> bool:
+        """
+        Take the broadcast for sending, or report that somebody else already has it.
+
+        One UPDATE decides it: the row moves to SENDING only from a status that is not SENDING,
+        so a second sender loses and does nothing. It is not the ordinary cron tick that collides
+        here - that one picks up QUEUED alone - but a hand-run `--id` next to the cron job, or two
+        hand runs at once. The delivery ledger cannot stand in for this: `plan()` writes every row
+        up front and `mark_sent()` only closes one after the message is out, so in the window
+        between them both senders read the same rows as outstanding and mail them twice. The
+        unique constraint keeps the rows unique, not the mail.
+
+        A broadcast left in SENDING by a killed process is therefore stuck by design; the admin's
+        queue action is the way out, and re-queueing is a decision for a person, not for cron -
+        only a human knows whether the other run is really gone.
+        """
+
+        claimed = (
+            Broadcast.objects.filter(pk=self.pk).exclude(status=self.Status.SENDING).update(status=self.Status.SENDING)
+        )
+        if claimed:
+            self.status = self.Status.SENDING
+
+        return bool(claimed)
+
     def finish(self):
         """Close the run: FAILED only if something is still owed, SENT once the ledger is empty."""
         outstanding = self.deliveries.outstanding().count()

@@ -67,6 +67,17 @@ class Command(BaseCommand):
                 self.stdout.write(f"  {customer.email}")
             return
 
+        # Claim it before planning anything: a run already in flight owns the ledger, and a second
+        # sender working the same rows would mail everyone twice.
+        if not broadcast.claim():
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Broadcast {broadcast.id}: already sending. If a run was killed, re-queue it "
+                    f"in the admin - that is what releases it."
+                )
+            )
+            return
+
         # Phase one: write down who is owed a message. Repeat runs add newcomers and change
         # nothing else, so an interrupted send resumes instead of starting over.
         outstanding = broadcast.plan(get_broadcast_recipients())
@@ -74,9 +85,6 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Broadcast {broadcast.id}: nobody to send to."))
             broadcast.finish()
             return
-
-        broadcast.status = Broadcast.Status.SENDING
-        broadcast.save(update_fields=["status"])
 
         # Phase two: work the ledger down. Each row is closed the moment its message is out, so
         # a crash costs at most the one in flight.

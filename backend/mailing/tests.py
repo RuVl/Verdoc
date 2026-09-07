@@ -167,6 +167,19 @@ class BroadcastCommandTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(self.broadcast.status, Broadcast.Status.SENT)
 
+    def test_a_broadcast_already_sending_is_left_alone(self):
+        """The claim is what stops a second sender mailing everyone all over again."""
+
+        Broadcast.objects.filter(pk=self.broadcast.pk).update(status=Broadcast.Status.SENDING)
+
+        self.assertFalse(self.broadcast.claim())
+
+        self.run_broadcast(id=self.broadcast.id)
+
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(self.broadcast.deliveries.count(), 0)
+        self.assertEqual(self.broadcast.status, Broadcast.Status.SENDING)
+
     def test_a_failure_is_recorded_against_the_recipient(self):
         with patch("mailing.management.commands.broadcast.build_broadcast_email") as build:
             build.side_effect = RuntimeError("mailbox full")
@@ -247,6 +260,20 @@ class BroadcastAdminTests(TestCase):
         # modeltranslation's own classes, so it is not the thing to match on.
         self.assertEqual(page.count("data-mce-conf"), 2)
         self.assertIn("tinymce.min.js", page)
+
+    def test_a_stuck_sending_broadcast_can_be_requeued(self):
+        """A killed sender leaves SENDING behind, and the admin is the only way out of it."""
+
+        Broadcast.objects.filter(pk=self.broadcast.pk).update(status=Broadcast.Status.SENDING)
+
+        self.client.post(
+            reverse("admin:mailing_broadcast_changelist"),
+            {"action": "queue_for_sending", "_selected_action": [str(self.broadcast.pk)]},
+            follow=True,
+        )
+
+        self.broadcast.refresh_from_db()
+        self.assertEqual(self.broadcast.status, Broadcast.Status.QUEUED)
 
     def test_the_counts_follow_the_delivery_rows(self):
         with patch("mailing.management.commands.broadcast.build_broadcast_email") as build:

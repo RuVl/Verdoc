@@ -28,6 +28,9 @@ HELP_HTML = (
     "Watch <code>status</code> and the sent / failed counts.</li>"
     "<li>If a broadcast ends up <b>FAILED</b>, fix the issue and run <b>Queue / re-queue</b> again - "
     "the sender only retries the recipients it did not reach.</li>"
+    "<li>A broadcast stuck in <b>SENDING</b> means the sender was killed mid-run. Run "
+    "<b>Queue / re-queue</b> on it too: nothing is sent twice, only the recipients still "
+    "outstanding are picked up. Do this only once you are sure no run is still going.</li>"
     "</ol>"
 )
 
@@ -149,7 +152,11 @@ class BroadcastAdmin(TranslationAdmin):
         self.message_user(request, f"Broadcast {broadcast.id}: test sent to {broadcast.test_email}", messages.SUCCESS)
 
     def _queue_one(self, request, broadcast: Broadcast):
-        if broadcast.status in (Broadcast.Status.DRAFT, Broadcast.Status.FAILED):
+        # SENDING is in the list because a process killed mid-run leaves the broadcast there with
+        # no other way back: the cron run takes only QUEUED, and `Broadcast.claim` refuses a row
+        # that is already sending. Re-queueing is deliberately a person's call - the rows still
+        # outstanding are retried, the ones already sent are not.
+        if broadcast.status in (Broadcast.Status.DRAFT, Broadcast.Status.FAILED, Broadcast.Status.SENDING):
             broadcast.status = Broadcast.Status.QUEUED
             broadcast.save(update_fields=["status"])
             self.message_user(

@@ -19,6 +19,9 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 
 # Development settings
 if DEBUG:
+    # Local only. In production SITE_ID stays unset on purpose: one backend serves two domains and
+    # `Site.objects.get_current(request)` then picks the site by Host header, which is how the
+    # mirror keeps its links to itself. Links built without a request use DEFAULT_SITE_DOMAIN.
     SITE_ID = 1
 
 # Production settings
@@ -91,6 +94,12 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Overridable so a local run can hand out http:// links that actually open.
 SITE_SCHEME = env("SITE_SCHEME", default="https")
 
+# The domain links are signed with when there is no request to read the Host from - cron
+# (broadcast), and anything else built off-request. With SITE_ID unset Django refuses to guess a
+# site, so name the domain here. The first ALLOWED_HOSTS entry is already "the main domain"
+# elsewhere (sales/views.py picks the Plisio key by it), so it is the default.
+DEFAULT_SITE_DOMAIN = env("DEFAULT_SITE_DOMAIN", default=ALLOWED_HOSTS[0] if ALLOWED_HOSTS else "")
+
 # Customer access lifetimes
 PURCHASES_PAGE_TTL = timedelta(hours=24)  # Customer.access_token
 DOWNLOAD_TTL = timedelta(hours=24)  # Allocation.token
@@ -103,11 +112,18 @@ MAX_ORDER_ITEMS = 25
 # DRF ships BasicAuthentication on by default, which turns every public endpoint into a place to
 # try Django passwords against. Nothing here authenticates over Basic - the admin uses a session -
 # so the storefront API is left with the session alone.
+# The browsable API renders a writable HTML form on every endpoint, so production speaks JSON only.
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
     ],
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
 }
+
+if DEBUG:
+    REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")
 
 # Look up the MX record of the e-mail domain at checkout. Fails open on any DNS trouble, see
 # customer/validators.py - turn it off only if outbound DNS is blocked.
@@ -207,6 +223,14 @@ TIME_ZONE = "UTC"
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
+
+# Media files (the product files being sold)
+# MEDIA_ROOT is deliberately not declared: StockItem.file names already carry the "products/"
+# prefix (upload_to="products/"), and the empty default resolves them against the working
+# directory, which gunicorn starts as /app - exactly the products_volume mount /app/products.
+# MEDIA_ROOT = BASE_DIR / "products" would double the prefix and break every download.
+# MEDIA_URL is spelled out at the value Django computes anyway ("" gets a script prefix added).
+MEDIA_URL = "/"
 
 # Currency settings
 CURRENCIES = ("USD", "RUB")

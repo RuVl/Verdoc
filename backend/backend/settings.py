@@ -224,12 +224,20 @@ TIME_ZONE = "UTC"
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
 
-# Media files (the product files being sold)
-# MEDIA_ROOT is deliberately not declared: StockItem.file names already carry the "products/"
-# prefix (upload_to="products/"), and the empty default resolves them against the working
-# directory, which gunicorn starts as /app - exactly the products_volume mount /app/products.
-# MEDIA_ROOT = BASE_DIR / "products" would double the prefix and break every download.
+# Media files (the product files being sold).
+#
+# BASE_DIR, not BASE_DIR / "products": the stored names already carry that prefix
+# (StockItem.file is upload_to="products/"), so the join lands on /app/products/<name> in the
+# container - the products_volume mount - and on backend/products/<name> on a host run. Adding
+# the directory here would double it and break every download.
+#
+# This is what the empty default already resolved to, since it is taken against the working
+# directory and every way we start Django has cwd == BASE_DIR (WORKDIR /app in the image, `cd
+# backend` in the Makefile). Spelling it out drops that coincidence: cron runs from the home
+# directory, so a job that ever touches a file would have looked for it under /root.
+#
 # MEDIA_URL is spelled out at the value Django computes anyway ("" gets a script prefix added).
+MEDIA_ROOT = BASE_DIR
 MEDIA_URL = "/"
 
 # Currency settings

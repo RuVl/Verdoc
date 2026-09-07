@@ -30,6 +30,13 @@ COMPOSE_DEV ?= docker compose -f docker-compose.dev.yaml
 UV          ?= uv
 RUFF        ?= uvx ruff@0.15.12
 PRECOMMIT   ?= uvx pre-commit
+DOCKER      ?= docker
+
+# Проверка конфига nginx (make nginx-check). Образ — тот же, что во frontend/Dockerfile;
+# домены произвольные: шаблонам нужны только имена и самоподписанные сертификаты под них.
+NGINX_IMAGE         ?= docker.io/library/nginx:1.26.0
+NGINX_DOMAIN        ?= example.com
+NGINX_MIRROR_DOMAIN ?= mirror.example.com
 
 # Пути для ruff (со своим [tool.ruff] в backend/pyproject.toml).
 RUFF_PATHS ?= backend
@@ -129,6 +136,27 @@ logs-db: ## Логи postgres
 .PHONY: logs-nginx
 logs-nginx: ## Логи frontend-nginx
 	$(COMPOSE) logs -f frontend-nginx
+
+# Синтаксис конфига nginx без сборки стека: одноразовый контейнер, оба шаблона рендерятся
+# envsubst'ом (DOMAIN и MIRROR_DOMAIN), сертификаты и каталоги создаются на месте, backend
+# резолвится в 127.0.0.1 — nginx проверяет имя из proxy_pass при старте.
+.PHONY: nginx-check
+nginx-check: ## Проверить конфиг nginx (envsubst + nginx -t в одноразовом контейнере)
+	$(DOCKER) run --rm --add-host backend:127.0.0.1 -v "$(CURDIR)/frontend/nginx:/conf:ro" \
+	  -e DOMAIN=$(NGINX_DOMAIN) -e MIRROR_DOMAIN=$(NGINX_MIRROR_DOMAIN) $(NGINX_IMAGE) sh -c '\
+	  apt-get -qq update >/dev/null && apt-get -qq install -y gettext-base >/dev/null; \
+	  for d in "$$DOMAIN" "$$MIRROR_DOMAIN"; do \
+	    openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=$$d" \
+	      -keyout /etc/ssl/$$d.key -out /etc/ssl/$$d.crt >/dev/null 2>&1; \
+	  done; \
+	  cp /conf/00-limits.conf /etc/nginx/conf.d/00-limits.conf; \
+	  cp /conf/cloudflare-realip.conf /etc/nginx/conf.d/01-cloudflare-realip.conf; \
+	  cp /conf/proxy-backend.conf /etc/nginx/proxy-backend.conf; \
+	  cp /conf/site-body.conf /etc/nginx/site-body.conf; \
+	  rm -f /etc/nginx/conf.d/default.conf; \
+	  envsubst "\$$DOMAIN" < /conf/site.conf.template > /etc/nginx/conf.d/verif-docs.conf; \
+	  envsubst "\$$MIRROR_DOMAIN" < /conf/mirror.conf.template > /etc/nginx/conf.d/photo-scan.conf; \
+	  mkdir -p /usr/www/logs /app/static; nginx -t'
 
 # --- Резервный SMTP-релей с DKIM (boky/postfix, профиль mail) ----------------
 # Нужен ключ secrets/opendkim/photo-scan.store.private и EMAIL_URL=smtp://mail:587

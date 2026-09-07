@@ -42,6 +42,9 @@ COPY nginx/mirror.conf.template /etc/nginx/templates/photo-scan.conf.template
 # Rate-limit zones (http context, declared once) and the blocks both site templates include.
 # Not templates themselves: they carry no ${DOMAIN}, and the zones must be declared exactly once.
 COPY nginx/00-limits.conf /etc/nginx/conf.d/00-limits.conf
+# Cloudflare real-ip, also http context. Numbered so the include order is fixed rather than up to
+# whatever names land in conf.d later.
+COPY nginx/cloudflare-realip.conf /etc/nginx/conf.d/01-cloudflare-realip.conf
 COPY nginx/proxy-backend.conf /etc/nginx/proxy-backend.conf
 COPY nginx/site-body.conf /etc/nginx/site-body.conf
 

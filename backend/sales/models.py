@@ -56,13 +56,20 @@ class OrderQuerySet(models.QuerySet):
 
         Handing it back instead of minting a second order is what keeps a double click - or someone
         probing the checkout with the same cart - from reserving another copy of the same units.
+
+        Both halves of the filter carry weight. `paid_at` is the paid test, because it is the only
+        stamp written exactly once: a late `cancelled duplicate` callback after the `completed` one
+        puts a settled order back at PENDING (`plisio.apply_order_status`), and if `deliver()` had
+        failed its units are still RESERVED, so nothing else tells it from a live checkout.
+        `status` is what excludes the invoices Plisio has already killed - EXPIRED, CANCELLED,
+        ERROR - which `paid_at` alone would let through.
         """
 
         wanted = sorted((item["product"].pk, item["quantity"]) for item in items)
         wanted_units = sum(quantity for _, quantity in wanted)
 
         candidates = (
-            self.filter(customer__email=email, status=Order.OrderStatus.PENDING)
+            self.filter(customer__email=email, status=Order.OrderStatus.PENDING, paid_at__isnull=True)
             .exclude(invoice_url="")
             .annotate(reserved=Count("items__allocations", filter=Q(items__allocations__state="RESERVED")))
             .prefetch_related("items__product")

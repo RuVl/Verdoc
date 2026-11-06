@@ -73,10 +73,29 @@ def checkout_error_code(errors) -> str:
     return "invalid_order"
 
 
+def shop_secret_key(request) -> str:
+    """The Plisio key of the domain this request came to. Empty when that key is not configured."""
+
+    if Site.objects.get_current(request).domain == settings.ALLOWED_HOSTS[0]:
+        return settings.PLISIO_SECRET_KEY
+
+    return settings.MIRROR_PLISIO_SECRET_KEY
+
+
 class OrderCreateView(APIView):
     """Create a new order endpoint"""
 
     def post(self, request, *args, **kwargs):
+        # Before anything is reserved, and before a live invoice is reused: without the key the
+        # callback cannot be verified, so a payment made now would never reach the customer.
+        secret_key = shop_secret_key(request)
+        if not secret_key:
+            logger.error("Checkout refused: this domain has no Plisio key configured")
+            return Response(
+                {"detail": "Payments are temporarily unavailable", "code": "payments_unavailable"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         serializer = OrderSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -95,11 +114,6 @@ class OrderCreateView(APIView):
             # reserving a second copy of the same units.
             logger.info(f"Order {order.id} reused for a repeated checkout")
             return Response({"redirect_url": order.invoice_url}, status=status.HTTP_201_CREATED)
-
-        if Site.objects.get_current(request).domain == settings.ALLOWED_HOSTS[0]:
-            secret_key = settings.PLISIO_SECRET_KEY
-        else:
-            secret_key = settings.MIRROR_PLISIO_SECRET_KEY
 
         # Prepare data for plisio invoice
         invoice_data = {
@@ -190,6 +204,10 @@ class PlisioCallbackView(APIView):
             settings.PLISIO_SECRET_KEY,
             settings.MIRROR_PLISIO_SECRET_KEY,
         ):
+            # An HMAC with an empty key is one anybody can compute, so an unset key verifies nothing.
+            if not secret_key:
+                continue
+
             for candidate in candidates:
                 calculated_hash = hmac.new(
                     secret_key.encode("utf-8"), candidate.encode("utf-8"), hashlib.sha1

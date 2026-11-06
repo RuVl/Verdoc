@@ -246,9 +246,9 @@ BASE_CURRENCY = "USD"
 EXCHANGE_BACKEND = "djmoney.contrib.exchange.backends.OpenExchangeRatesBackend"
 OPEN_EXCHANGE_RATES_APP_ID = env("OPENEXCHANGERATES_APP_ID")
 
-# Plisio token
-PLISIO_SECRET_KEY = env("PLISIO_SECRET_KEY")
-MIRROR_PLISIO_SECRET_KEY = env("MIRROR_PLISIO_SECRET_KEY")
+# Plisio token. Optional: a domain without its key refuses checkout, and the rest of the site works.
+PLISIO_SECRET_KEY = env("PLISIO_SECRET_KEY", default="")
+MIRROR_PLISIO_SECRET_KEY = env("MIRROR_PLISIO_SECRET_KEY", default="")
 
 # Email config
 # The backend follows the scheme of EMAIL_URL (smtp:// in production, consolemail:// in dev).

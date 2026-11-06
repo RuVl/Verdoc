@@ -42,6 +42,7 @@ async function buy() {
     error.value = errorMessageKey(e, {
       out_of_stock: 'cart_view.modal_window.error.out_of_stock',
       invalid_order: 'cart_view.modal_window.error.invalid_order',
+      payments_unavailable: 'cart_view.modal_window.error.payments_unavailable',
       502: 'cart_view.modal_window.error.payment_gateway',
     });
     console.error('Checkout failed:', e.response?.data?.provider_code ?? '', e);

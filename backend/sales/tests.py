@@ -27,6 +27,7 @@ from catalog.models import Country, Product, StockItem
 from customer.models import Customer
 from sales.models import Allocation, Order, OrderItem, PaymentCallbackLog, Transaction
 from sales.utils import send_purchases_link
+from sales.views import redact
 
 
 class OrderItemFactoryMixin:
@@ -387,6 +388,32 @@ class PlisioCallbackTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(response.status_code, 422)
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, Order.OrderStatus.PENDING)
+
+    def signed_with(self, key: str) -> dict:
+        body = json.dumps(self.payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return {**self.payload, "verify_hash": hmac.new(key.encode(), body.encode(), hashlib.sha1).hexdigest()}
+
+    def test_a_hash_made_with_an_empty_key_is_rejected(self):
+        # Anybody can compute it, so accepting it would hand the files over for a forged request.
+        for primary, mirror in (("", ""), ("primary-key", ""), ("", "mirror-key")):
+            with (
+                self.subTest(primary=primary, mirror=mirror),
+                override_settings(PLISIO_SECRET_KEY=primary, MIRROR_PLISIO_SECRET_KEY=mirror),
+            ):
+                response = self.client.post(self.url, self.signed_with(""), format="json")
+
+                self.assertEqual(response.status_code, 422)
+                self.order.refresh_from_db()
+                self.assertIsNone(self.order.paid_at)
+                self.assertEqual(PaymentCallbackLog.objects.count(), 0)
+
+    @override_settings(PLISIO_SECRET_KEY="", MIRROR_PLISIO_SECRET_KEY="mirror-key")
+    def test_the_remaining_key_still_verifies(self):
+        response = self.client.post(self.url, self.signed_with("mirror-key"), format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.paid_at)
 
     def test_unknown_order_is_logged_and_404(self):
         response = self.post_callback(order_number="999999")
@@ -767,13 +794,48 @@ class CheckoutTests(OrderItemFactoryMixin, TestCase):
     @override_settings(PLISIO_SECRET_KEY="primary-key", MIRROR_PLISIO_SECRET_KEY="")
     def test_an_unset_key_does_not_star_out_the_whole_message(self):
         # "".replace() matches between every character - an empty key must be skipped, not applied.
-        with (
-            patch("sales.views.requests.get", side_effect=requests.ConnectionError("no route to host")),
-            self.assertLogs("sales.views", level="ERROR") as logs,
-        ):
-            self.client.post(self.url, self.payload(), format="json")
+        self.assertEqual(redact("no route to host"), "no route to host")
 
-        self.assertIn("no route to host", "\n".join(logs.output))
+    @override_settings(PLISIO_SECRET_KEY="", MIRROR_PLISIO_SECRET_KEY="")
+    def test_without_keys_checkout_is_refused_before_anything_is_held(self):
+        with (
+            patch("sales.views.requests.get") as plisio,
+            self.assertLogs("sales.views", level="ERROR"),
+        ):
+            response = self.client.post(self.url, self.payload(), format="json")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], "payments_unavailable")
+        plisio.assert_not_called()
+        self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 0)
+        self.assertEqual(self.product.available_count(), 3)
+
+    @override_settings(
+        ALLOWED_HOSTS=["primary.test", "testserver"],
+        PLISIO_SECRET_KEY="primary-key",
+        MIRROR_PLISIO_SECRET_KEY="",
+    )
+    def test_only_the_domain_without_its_key_stops_selling(self):
+        with (
+            patch.object(Site.objects, "get_current", return_value=Site(domain="mirror.test")),
+            self.assertLogs("sales.views", level="ERROR"),
+        ):
+            mirror = self.client.post(self.url, self.payload(), format="json")
+
+        with (
+            patch.object(Site.objects, "get_current", return_value=Site(domain="primary.test")),
+            patch("sales.views.requests.get") as plisio,
+        ):
+            plisio.return_value.status_code = 200
+            plisio.return_value.json.return_value = {
+                "status": "success",
+                "data": {"invoice_url": "https://plisio.net/invoice/1"},
+            }
+            primary = self.client.post(self.url, self.payload(), format="json")
+
+        self.assertEqual(mirror.status_code, 503)
+        self.assertEqual(primary.status_code, 201)
+        self.assertEqual(plisio.call_args.kwargs["params"]["api_key"], "primary-key")
 
     def test_the_invoice_carries_the_callback_url_with_json_true(self):
         # Without ?json=true Plisio posts a form signed with PHP's serialize(), which validate_hash
@@ -838,6 +900,19 @@ class CheckoutReuseTests(OrderItemFactoryMixin, TestCase):
         self.assertEqual(Order.objects.filter(customer__email="new@example.com").count(), 1)
         self.assertEqual(Allocation.objects.count(), 1)
         self.assertEqual(self.product.available_count(), 2)
+
+    def test_a_live_invoice_is_not_reused_once_the_keys_are_gone(self):
+        # Its callback could no longer be verified: the customer would pay and receive nothing.
+        self.checkout(self.payload())
+
+        with (
+            override_settings(PLISIO_SECRET_KEY="", MIRROR_PLISIO_SECRET_KEY=""),
+            self.assertLogs("sales.views", level="ERROR"),
+        ):
+            response, _ = self.checkout(self.payload())
+
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("redirect_url", response.data)
 
     def test_reuse_works_when_the_order_holds_the_last_unit(self):
         # The availability check used to refuse the customer their own reservation here.
